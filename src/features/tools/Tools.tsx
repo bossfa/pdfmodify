@@ -1098,15 +1098,41 @@ function GenerateHydronicFormTool() {
       const wrapTextToWidth = (f: typeof font, text: string, size: number, maxWidth: number) => {
         const words = text.trim().split(/\s+/g).filter(Boolean)
         if (words.length === 0) return [] as string[]
+
+        const splitLongWord = (w: string) => {
+          if (f.widthOfTextAtSize(w, size) <= maxWidth) return [w]
+          const parts = [] as string[]
+          let rest = w
+          while (rest.length > 0) {
+            let lo = 1
+            let hi = rest.length
+            let best = 1
+            while (lo <= hi) {
+              const mid = Math.floor((lo + hi) / 2)
+              const slice = rest.slice(0, mid)
+              if (f.widthOfTextAtSize(slice, size) <= maxWidth) {
+                best = mid
+                lo = mid + 1
+              } else {
+                hi = mid - 1
+              }
+            }
+            parts.push(rest.slice(0, best))
+            rest = rest.slice(best)
+          }
+          return parts
+        }
+
+        const normalizedWords = words.flatMap(splitLongWord)
         const lines = [] as string[]
-        let current = words[0]
-        for (let i = 1; i < words.length; i += 1) {
-          const candidate = `${current} ${words[i]}`
+        let current = normalizedWords[0]
+        for (let i = 1; i < normalizedWords.length; i += 1) {
+          const candidate = `${current} ${normalizedWords[i]}`
           if (f.widthOfTextAtSize(candidate, size) <= maxWidth) {
             current = candidate
           } else {
             lines.push(current)
-            current = words[i]
+            current = normalizedWords[i]
           }
         }
         lines.push(current)
@@ -1138,37 +1164,70 @@ function GenerateHydronicFormTool() {
         const name = (companyName || 'La mia azienda').trim()
         const sub = (companySubline || '').replace(/\r\n/g, '\n').trim()
 
-        const nameLines = name ? wrapTextToWidth(fontBold, name, companyNameSize, maxWidth).slice(0, 2) : []
-        const subLinesRaw = sub ? sub.split('\n').flatMap((line) => wrapTextToWidth(font, line, companySublineSize, maxWidth)) : []
-        const subLines = subLinesRaw.slice(0, 4)
+        const maxHeight = Math.max(24, Math.min(120, Math.round(Math.max(logoBoxH, 46))) - 4)
+        const minNameSize = 10
+        const minSubSize = 7
 
-        let y = topY - 16
+        let fittedNameSize = Math.max(minNameSize, Math.min(24, Math.round(companyNameSize)))
+        let fittedSubSize = Math.max(minSubSize, Math.min(16, Math.round(companySublineSize)))
+
+        let nameLines: string[] = []
+        let subLines: string[] = []
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          nameLines = name ? wrapTextToWidth(fontBold, name, fittedNameSize, maxWidth).slice(0, 2) : []
+          const subLinesRaw = sub
+            ? sub.split('\n').flatMap((line) => wrapTextToWidth(font, line, fittedSubSize, maxWidth))
+            : []
+          subLines = subLinesRaw.slice(0, 6)
+
+          const nameH = nameLines.length > 0 ? nameLines.length * Math.max(12, fittedNameSize + 2) : 0
+          const subH = subLines.length > 0 ? subLines.length * Math.max(10, fittedSubSize + 2) : 0
+          const gapY = nameLines.length > 0 && subLines.length > 0 ? 2 : 0
+          const totalH = nameH + gapY + subH
+
+          if (totalH <= maxHeight) break
+          fittedNameSize = Math.max(minNameSize, Math.floor(fittedNameSize * 0.92))
+          fittedSubSize = Math.max(minSubSize, Math.floor(fittedSubSize * 0.92))
+          if (fittedNameSize === minNameSize && fittedSubSize === minSubSize) break
+        }
+
+        const nameLineH = Math.max(12, fittedNameSize + 2)
+        const subLineH = Math.max(10, fittedSubSize + 2)
+        const totalH =
+          (nameLines.length > 0 ? nameLines.length * nameLineH : 0) +
+          (nameLines.length > 0 && subLines.length > 0 ? 2 : 0) +
+          (subLines.length > 0 ? subLines.length * subLineH : 0)
+
+        let y = topY - 12
+        if (totalH > 0) y = y - Math.max(0, totalH - maxHeight)
+
         for (let i = 0; i < nameLines.length; i += 1) {
           const line = nameLines[i]
-          const w = fontBold.widthOfTextAtSize(line, companyNameSize)
+          const w = fontBold.widthOfTextAtSize(line, fittedNameSize)
           page.drawText(line, {
             x: Math.max(leftMin, right - w),
             y,
-            size: companyNameSize,
+            size: fittedNameSize,
             font: fontBold,
             color: rgb(0, 0, 0),
           })
-          y -= Math.max(12, companyNameSize + 2)
+          y -= nameLineH
         }
 
         if (subLines.length > 0) {
-          if (nameLines.length === 0) y = topY - 28
+          if (nameLines.length > 0) y -= 2
+          if (nameLines.length === 0) y = topY - 24
           for (let i = 0; i < subLines.length; i += 1) {
             const line = subLines[i]
-            const w = font.widthOfTextAtSize(line, companySublineSize)
+            const w = font.widthOfTextAtSize(line, fittedSubSize)
             page.drawText(line, {
               x: Math.max(leftMin, right - w),
               y,
-              size: companySublineSize,
+              size: fittedSubSize,
               font,
               color: rgb(0.2, 0.2, 0.2),
             })
-            y -= Math.max(10, companySublineSize + 2)
+            y -= subLineH
           }
         }
       }
@@ -1313,11 +1372,11 @@ function GenerateHydronicFormTool() {
       p1.drawText('CAP', { x: addrCapX, y: utenteTop - 70, size: 9, font: fontBold })
       addTextField('p1_utente_cap', p1, addrCapX, utenteTop - 90, addrCapW, 18, 10, fillBg)
       p1.drawText('Tel', { x: sectionX + 10, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 134, 140, 18, 10, fillBg)
+      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 132, 140, 18, 10, fillBg)
       p1.drawText('Fax', { x: sectionX + 160, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 134, 140, 18, 10, fillBg)
+      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 132, 140, 18, 10, fillBg)
       p1.drawText('E-mail', { x: sectionX + 310, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 134, sectionW - 320, 18, 10, fillBg)
+      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 132, sectionW - 320, 18, 10, fillBg)
 
       const instTop = utenteTop - sectionH - gap
       drawBox(p1, sectionX, instTop - sectionH, sectionW, sectionH, rgb(1, 1, 1))
@@ -1332,14 +1391,17 @@ function GenerateHydronicFormTool() {
       p1.drawText('CAP', { x: addrCapX, y: instTop - 70, size: 9, font: fontBold })
       addTextField('p1_installatore_cap', p1, addrCapX, instTop - 90, addrCapW, 18, 10, fillBg)
       p1.drawText('Tel', { x: sectionX + 10, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 134, 140, 18, 10, fillBg)
+      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 132, 140, 18, 10, fillBg)
       p1.drawText('Fax', { x: sectionX + 160, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 134, 140, 18, 10, fillBg)
+      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 132, 140, 18, 10, fillBg)
       p1.drawText('E-mail', { x: sectionX + 310, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 134, sectionW - 320, 18, 10, fillBg)
+      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 132, sectionW - 320, 18, 10, fillBg)
 
-      p1.drawText('Responsabile presente', { x: sectionX + 10, y: instTop - 162, size: 9, font: fontBold })
-      addTextField('p1_responsabile_presente', p1, sectionX + 10, instTop - 182, sectionW - 20, 18, 10, fillBg)
+      const respH = 44
+      const respTop = instTop - sectionH - 12
+      drawBox(p1, sectionX, respTop - respH, sectionW, respH, rgb(1, 1, 1))
+      p1.drawText('Responsabile presente', { x: sectionX + 10, y: respTop - 16, size: 9, font: fontBold })
+      addTextField('p1_responsabile_presente', p1, sectionX + 10, respTop - 36, sectionW - 20, 18, 10, fillBg)
 
       if (includePage2) {
         const p2 = pdf.addPage([a4.w, a4.h])
