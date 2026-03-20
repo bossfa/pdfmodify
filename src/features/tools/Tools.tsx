@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
+import { AnnotationFlags, PDFAcroSignature, PDFDocument, PDFName, PDFWidgetAnnotation, StandardFonts, degrees, rgb } from 'pdf-lib'
 import type { PDFPage } from 'pdf-lib'
 import type { PDFDocumentProxy } from '../../pdf/pdfjs'
 import { loadPdfDocument } from '../../pdf/pdfjs'
@@ -885,6 +885,13 @@ function GenerateHydronicFormTool() {
   const [companyName, setCompanyName] = useState('CLIMAX SRL')
   const [companySubline, setCompanySubline] = useState('Via…, Città… - P.IVA…')
   const [logo, setLogo] = useState<File | null>(null)
+  const [logoBoxW, setLogoBoxW] = useState(220)
+  const [logoBoxH, setLogoBoxH] = useState(46)
+  const [fontFamily, setFontFamily] = useState<'helvetica' | 'times' | 'courier'>('helvetica')
+  const [companyNameSize, setCompanyNameSize] = useState(16)
+  const [companySublineSize, setCompanySublineSize] = useState(10)
+  const [titleSize, setTitleSize] = useState(18)
+  const [layoutMode, setLayoutMode] = useState<'standard' | 'riprogramma'>('standard')
   const [fieldBg, setFieldBg] = useState('#d5e0ff')
   const [headerBg, setHeaderBg] = useState('#e1eaff')
   const [showProgressivo, setShowProgressivo] = useState(true)
@@ -940,8 +947,14 @@ function GenerateHydronicFormTool() {
     const pdf = await PDFDocument.create()
     const form = pdf.getForm()
 
-    const font = await pdf.embedFont(StandardFonts.Helvetica)
-    const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+    const fontMap = {
+      helvetica: { regular: StandardFonts.Helvetica, bold: StandardFonts.HelveticaBold },
+      times: { regular: StandardFonts.TimesRoman, bold: StandardFonts.TimesRomanBold },
+      courier: { regular: StandardFonts.Courier, bold: StandardFonts.CourierBold },
+    } as const
+
+    const font = await pdf.embedFont(fontMap[fontFamily].regular)
+    const fontBold = await pdf.embedFont(fontMap[fontFamily].bold)
 
     const fillBg = hexToRgb01(fieldBg)
     const headerBlue = hexToRgb01(headerBg)
@@ -1028,6 +1041,35 @@ function GenerateHydronicFormTool() {
       field.addToPage(page, { x, y, width: size, height: size, borderWidth: 0 })
     }
 
+    const addSignatureField = (
+      name: string,
+      page: PDFPage,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      fill?: ReturnType<typeof rgb>,
+    ) => {
+      drawBox(page, x, y, width, height, fill)
+
+      const sigDict = pdf.context.obj({ FT: PDFName.of('Sig'), Kids: [] })
+      const sigRef = pdf.context.register(sigDict)
+      const sig = PDFAcroSignature.fromDict(sigDict, sigRef)
+      sig.setPartialName(name)
+      form.acroForm.addField(sigRef)
+
+      const widget = PDFWidgetAnnotation.create(pdf.context, sigRef)
+      widget.setRectangle({ x, y, width, height })
+      widget.setP(page.ref)
+      widget.setFlagTo(AnnotationFlags.Print, true)
+      widget.setFlagTo(AnnotationFlags.Hidden, false)
+      widget.setFlagTo(AnnotationFlags.Invisible, false)
+
+      const widgetRef = pdf.context.register(widget.dict)
+      sig.addWidget(widgetRef)
+      page.node.addAnnot(widgetRef)
+    }
+
       const drawLogo = (page: PDFPage, x: number, y: number, width: number, height: number) => {
         if (embeddedLogo) {
           const iw = embeddedLogo.width
@@ -1053,24 +1095,28 @@ function GenerateHydronicFormTool() {
         })
       }
 
-      const drawRightText = (
-        page: PDFPage,
-        text: string,
-        rightX: number,
-        y: number,
-        size: number,
-        useBold: boolean,
-        color?: ReturnType<typeof rgb>,
-      ) => {
-        const f = useBold ? fontBold : font
-        const x = Math.max(margin, rightX - f.widthOfTextAtSize(text, size))
-        page.drawText(text, { x, y, size, font: f, color: color ?? rgb(0, 0, 0) })
+      const wrapTextToWidth = (f: typeof font, text: string, size: number, maxWidth: number) => {
+        const words = text.trim().split(/\s+/g).filter(Boolean)
+        if (words.length === 0) return [] as string[]
+        const lines = [] as string[]
+        let current = words[0]
+        for (let i = 1; i < words.length; i += 1) {
+          const candidate = `${current} ${words[i]}`
+          if (f.widthOfTextAtSize(candidate, size) <= maxWidth) {
+            current = candidate
+          } else {
+            lines.push(current)
+            current = words[i]
+          }
+        }
+        lines.push(current)
+        return lines
       }
 
       const drawHeaderProgressivo = (page: PDFPage, topY: number, prefix: string) => {
         if (!showProgressivo) return
         const right = a4.w - margin
-        const boxW = 215
+        const boxW = layoutMode === 'riprogramma' ? 170 : 215
         const labelSize = 9
         const boxX = right - boxW
         page.drawText('N. progressivo rapporto', { x: boxX, y: topY - 12, size: labelSize, font: fontBold })
@@ -1078,19 +1124,53 @@ function GenerateHydronicFormTool() {
       }
 
       const drawHeaderLogo = (page: PDFPage, topY: number) => {
-        const logoW = 220
-        const logoH = 46
+        const logoW = Math.max(80, Math.min(360, Math.round(logoBoxW)))
+        const logoH = Math.max(20, Math.min(120, Math.round(logoBoxH)))
         const x = margin
         const y = topY - logoH
         drawLogo(page, x, y, logoW, logoH)
       }
 
-      const drawCompanyRight = (page: PDFPage, topY: number) => {
-        const right = a4.w - margin
+      const drawCompanyRight = (page: PDFPage, topY: number, rightLimitX?: number) => {
+        const right = rightLimitX ?? a4.w - margin
+        const leftMin = margin + Math.max(80, Math.min(360, Math.round(logoBoxW))) + 10
+        const maxWidth = Math.max(60, right - leftMin)
         const name = (companyName || 'La mia azienda').trim()
-        const sub = (companySubline || '').trim()
-        if (name) drawRightText(page, name, right, topY - 16, 16, true)
-        if (sub) drawRightText(page, sub, right, topY - 32, 10, false, rgb(0.2, 0.2, 0.2))
+        const sub = (companySubline || '').replace(/\r\n/g, '\n').trim()
+
+        const nameLines = name ? wrapTextToWidth(fontBold, name, companyNameSize, maxWidth).slice(0, 2) : []
+        const subLinesRaw = sub ? sub.split('\n').flatMap((line) => wrapTextToWidth(font, line, companySublineSize, maxWidth)) : []
+        const subLines = subLinesRaw.slice(0, 4)
+
+        let y = topY - 16
+        for (let i = 0; i < nameLines.length; i += 1) {
+          const line = nameLines[i]
+          const w = fontBold.widthOfTextAtSize(line, companyNameSize)
+          page.drawText(line, {
+            x: Math.max(leftMin, right - w),
+            y,
+            size: companyNameSize,
+            font: fontBold,
+            color: rgb(0, 0, 0),
+          })
+          y -= Math.max(12, companyNameSize + 2)
+        }
+
+        if (subLines.length > 0) {
+          if (nameLines.length === 0) y = topY - 28
+          for (let i = 0; i < subLines.length; i += 1) {
+            const line = subLines[i]
+            const w = font.widthOfTextAtSize(line, companySublineSize)
+            page.drawText(line, {
+              x: Math.max(leftMin, right - w),
+              y,
+              size: companySublineSize,
+              font,
+              color: rgb(0.2, 0.2, 0.2),
+            })
+            y -= Math.max(10, companySublineSize + 2)
+          }
+        }
       }
 
       const drawSectionHeader = (page: PDFPage, x: number, y: number, width: number, title: string) => {
@@ -1102,28 +1182,47 @@ function GenerateHydronicFormTool() {
       const p1Top = a4.h - margin
 
       drawHeaderLogo(p1, p1Top)
-      drawCompanyRight(p1, p1Top)
-
       const right = a4.w - margin
+
       const headerRightBoxW = 215
       const headerRightBoxX = right - headerRightBoxW
+      const companyRightLimit = showProgressivo || showDataIntervento ? headerRightBoxX - 10 : right
+      drawCompanyRight(p1, p1Top, companyRightLimit)
       let headerCursorY = p1Top - 48
-      if (showProgressivo) {
-        p1.drawText('N. progressivo rapporto', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
-        addTextField('p1_n_progressivo_rapporto', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
-        headerCursorY -= 38
-      }
-      if (showDataIntervento) {
-        p1.drawText('Data intervento', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
-        addTextField('p1_data_intervento', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
-        headerCursorY -= 38
+      if (layoutMode === 'riprogramma' && showProgressivo && showDataIntervento) {
+        const gap = 10
+        const w = Math.floor((headerRightBoxW - gap) / 2)
+        const leftX = right - headerRightBoxW
+        const y = p1Top - 46
+        p1.drawText('N. progressivo', { x: leftX, y, size: 9, font: fontBold })
+        addTextField('p1_n_progressivo_rapporto', p1, leftX, y - 20, w, 18, 11)
+        const x2 = leftX + w + gap
+        p1.drawText('Data intervento', { x: x2, y, size: 9, font: fontBold })
+        addTextField('p1_data_intervento', p1, x2, y - 20, w, 18, 11)
+        headerCursorY = y - 38
+      } else {
+        if (showProgressivo) {
+          p1.drawText('N. progressivo rapporto', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
+          addTextField('p1_n_progressivo_rapporto', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
+          headerCursorY -= 38
+        }
+        if (showDataIntervento) {
+          p1.drawText('Data intervento', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
+          addTextField('p1_data_intervento', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
+          headerCursorY -= 38
+        }
       }
 
       const title = 'MODULO INTERVENTO IDRONICI'
-      const titleSize = 18
-      const titleW = fontBold.widthOfTextAtSize(title, titleSize)
+      const finalTitleSize = Math.max(12, Math.min(28, Math.round(titleSize)))
+      const titleW = fontBold.widthOfTextAtSize(title, finalTitleSize)
       const titleY = Math.min(p1Top - 120, headerCursorY - 34)
-      p1.drawText(title, { x: Math.max(margin, a4.w / 2 - titleW / 2), y: titleY, size: titleSize, font: fontBold })
+      p1.drawText(title, {
+        x: Math.max(margin, a4.w / 2 - titleW / 2),
+        y: titleY,
+        size: finalTitleSize,
+        font: fontBold,
+      })
 
       let cursorAfterTopRowY = titleY
       const topRowItems = [] as Array<{ kind: 'text' | 'checkbox'; label: string; name: string }>
@@ -1222,7 +1321,7 @@ function GenerateHydronicFormTool() {
 
       const instTop = utenteTop - sectionH - gap
       drawBox(p1, sectionX, instTop - sectionH, sectionW, sectionH, rgb(1, 1, 1))
-      drawSectionHeader(p1, sectionX, instTop - 22, sectionW, 'Installatore  Nome/Ragione sociale')
+      drawSectionHeader(p1, sectionX, instTop - 22, sectionW, 'Centri servizi autorizzati  Nome/Ragione sociale')
       addTextField('p1_installatore_nome', p1, sectionX + 10, instTop - 46, sectionW - 20, 18, 10, fillBg)
       p1.drawText('Via', { x: sectionX + 10, y: instTop - 70, size: 9, font: fontBold })
       addTextField('p1_installatore_via', p1, addrViaX, instTop - 90, addrViaW, 18, 10, fillBg)
@@ -1246,6 +1345,9 @@ function GenerateHydronicFormTool() {
         const p2 = pdf.addPage([a4.w, a4.h])
         const p2Top = a4.h - margin
         drawHeaderLogo(p2, p2Top)
+        const right = a4.w - margin
+        const companyRightLimit = showProgressivo ? right - (layoutMode === 'riprogramma' ? 170 : 215) - 10 : right
+        drawCompanyRight(p2, p2Top, companyRightLimit)
         drawHeaderProgressivo(p2, p2Top, 'p2')
 
       const section2X = margin
@@ -1278,8 +1380,8 @@ function GenerateHydronicFormTool() {
 
       p2.drawText('Firma del Tecnico', { x: section2X + 6, y: sigTop - 54, size: 8, font: fontBold })
       p2.drawText('Firma per accettazione', { x: section2X + section2W / 2 + 6, y: sigTop - 54, size: 8, font: fontBold })
-      addMultilineTextField('p2_firma_tecnico', p2, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, 10, fillBg)
-      addMultilineTextField('p2_firma_accettazione', p2, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, 10, fillBg)
+      addSignatureField('p2_firma_tecnico', p2, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
+      addSignatureField('p2_firma_accettazione', p2, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
 
       cursorY = sigTop - 96
 
@@ -1358,18 +1460,42 @@ function GenerateHydronicFormTool() {
         const p3 = pdf.addPage([a4.w, a4.h])
         const p3Top = a4.h - margin
         drawHeaderLogo(p3, p3Top)
+        const right = a4.w - margin
+        const companyRightLimit = showProgressivo ? right - (layoutMode === 'riprogramma' ? 170 : 215) - 10 : right
+        drawCompanyRight(p3, p3Top, companyRightLimit)
         drawHeaderProgressivo(p3, p3Top, 'p3')
 
       const notesTop = p3Top - 80
+        const signatureH = 60
+        const signatureGap = 18
+        const signatureY = margin
+        const signatureW = (a4.w - margin * 2 - signatureGap) / 2
+        const notesBottom = signatureY + signatureH + 18
+
         p3.drawText('Note Aggiuntive', { x: margin, y: notesTop - 12, size: 9, font: fontBold })
         addMultilineTextField(
           'p3_note_aggiuntive',
           p3,
           margin,
-          margin,
+          notesBottom,
           a4.w - margin * 2,
-          notesTop - margin - 24,
+          Math.max(60, notesTop - notesBottom - 24),
           10,
+          fillBg,
+        )
+
+        drawBox(p3, margin, signatureY, signatureW, signatureH, rgb(1, 1, 1))
+        drawBox(p3, margin + signatureW + signatureGap, signatureY, signatureW, signatureH, rgb(1, 1, 1))
+        p3.drawText('Firma tecnico', { x: margin + 8, y: signatureY + signatureH - 14, size: 9, font: fontBold })
+        p3.drawText('Firma cliente', { x: margin + signatureW + signatureGap + 8, y: signatureY + signatureH - 14, size: 9, font: fontBold })
+        addSignatureField('p3_firma_tecnico', p3, margin + 8, signatureY + 8, signatureW - 16, signatureH - 26, fillBg)
+        addSignatureField(
+          'p3_firma_cliente',
+          p3,
+          margin + signatureW + signatureGap + 8,
+          signatureY + 8,
+          signatureW - 16,
+          signatureH - 26,
           fillBg,
         )
       }
@@ -1384,11 +1510,17 @@ function GenerateHydronicFormTool() {
   }, [
     companyName,
     companySubline,
+    companyNameSize,
+    companySublineSize,
     fieldBg,
+    fontFamily,
     headerBg,
     includePage2,
     includePage3,
+    layoutMode,
     logo,
+    logoBoxH,
+    logoBoxW,
     rowsIntervento,
     rowsRicambi,
     showDataIntervento,
@@ -1398,6 +1530,7 @@ function GenerateHydronicFormTool() {
     showModelliMatricole,
     showProgressivo,
     showTracingNumber,
+    titleSize,
   ])
 
   const onUpdatePreview = useCallback(async () => {
@@ -1437,13 +1570,49 @@ function GenerateHydronicFormTool() {
 
   return (
     <div className="toolForm">
+      <div className="noticeBanner">
+        Questa versione rimane lo standard. “Riprogramma” applica un layout alternativo (sempre fac-simile del modulo).
+      </div>
+      <div className="sidebarRow">
+        <button
+          className={layoutMode === 'standard' ? 'btn btnPrimary' : 'btn'}
+          type="button"
+          disabled={busy || previewBusy}
+          onClick={() => {
+            setLayoutMode('standard')
+            setLogoBoxW(220)
+            setLogoBoxH(46)
+            setFontFamily('helvetica')
+            setCompanyNameSize(16)
+            setCompanySublineSize(10)
+            setTitleSize(18)
+          }}
+        >
+          Standard
+        </button>
+        <button
+          className={layoutMode === 'riprogramma' ? 'btn btnPrimary' : 'btn'}
+          type="button"
+          disabled={busy || previewBusy}
+          onClick={() => {
+            setLayoutMode('riprogramma')
+            setLogoBoxW(250)
+            setLogoBoxH(54)
+            setCompanyNameSize(15)
+            setCompanySublineSize(9)
+            setTitleSize(18)
+          }}
+        >
+          Riprogramma
+        </button>
+      </div>
       <label className="field">
         <div className="fieldLabel">Ragione sociale</div>
         <input className="input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       </label>
       <label className="field">
         <div className="fieldLabel">Riga secondaria (indirizzo / P.IVA)</div>
-        <input className="input" value={companySubline} onChange={(e) => setCompanySubline(e.target.value)} />
+        <textarea className="input" value={companySubline} onChange={(e) => setCompanySubline(e.target.value)} rows={3} />
       </label>
       <div className="field">
         <div className="fieldLabel">Logo (PNG o JPG)</div>
@@ -1461,6 +1630,71 @@ function GenerateHydronicFormTool() {
         </label>
       </div>
       {logo ? <div className="sidebarHint">Selezionato: {logo.name}</div> : null}
+
+      <label className="field">
+        <div className="fieldLabel">Dimensione logo (larghezza)</div>
+        <input
+          className="input"
+          type="number"
+          min={80}
+          max={360}
+          value={logoBoxW}
+          onChange={(e) => setLogoBoxW(Math.max(80, Math.min(360, Number(e.target.value || '220'))))}
+        />
+      </label>
+      <label className="field">
+        <div className="fieldLabel">Dimensione logo (altezza)</div>
+        <input
+          className="input"
+          type="number"
+          min={20}
+          max={120}
+          value={logoBoxH}
+          onChange={(e) => setLogoBoxH(Math.max(20, Math.min(120, Number(e.target.value || '46'))))}
+        />
+      </label>
+
+      <label className="field">
+        <div className="fieldLabel">Font</div>
+        <select className="input" value={fontFamily} onChange={(e) => setFontFamily(e.target.value as typeof fontFamily)}>
+          <option value="helvetica">Helvetica</option>
+          <option value="times">Times</option>
+          <option value="courier">Courier</option>
+        </select>
+      </label>
+      <label className="field">
+        <div className="fieldLabel">Dimensione ragione sociale</div>
+        <input
+          className="input"
+          type="number"
+          min={10}
+          max={24}
+          value={companyNameSize}
+          onChange={(e) => setCompanyNameSize(Math.max(10, Math.min(24, Number(e.target.value || '16'))))}
+        />
+      </label>
+      <label className="field">
+        <div className="fieldLabel">Dimensione riga secondaria</div>
+        <input
+          className="input"
+          type="number"
+          min={7}
+          max={16}
+          value={companySublineSize}
+          onChange={(e) => setCompanySublineSize(Math.max(7, Math.min(16, Number(e.target.value || '10'))))}
+        />
+      </label>
+      <label className="field">
+        <div className="fieldLabel">Dimensione titolo</div>
+        <input
+          className="input"
+          type="number"
+          min={12}
+          max={28}
+          value={titleSize}
+          onChange={(e) => setTitleSize(Math.max(12, Math.min(28, Number(e.target.value || '18'))))}
+        />
+      </label>
 
       <div className="noticeBanner">
         Modifica le opzioni e poi premi “Aggiorna anteprima”. Quando sei soddisfatto, premi “Scarica PDF”.
