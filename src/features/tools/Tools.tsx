@@ -121,6 +121,23 @@ function readBytes(file: File): Promise<Uint8Array> {
   return file.arrayBuffer().then((ab) => new Uint8Array(ab))
 }
 
+function hexToRgb01(input: string): ReturnType<typeof rgb> {
+  const raw = input.trim().replace(/^#/, '')
+  const hex =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => `${c}${c}`)
+          .join('')
+      : raw
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return rgb(1, 1, 1)
+  const n = Number.parseInt(hex, 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return rgb(r / 255, g / 255, b / 255)
+}
+
 function PdfPreview({ file, password }: { file: File | null; password?: string }) {
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -868,103 +885,148 @@ function GenerateHydronicFormTool() {
   const [companyName, setCompanyName] = useState('CLIMAX SRL')
   const [companySubline, setCompanySubline] = useState('Via…, Città… - P.IVA…')
   const [logo, setLogo] = useState<File | null>(null)
+  const [fieldBg, setFieldBg] = useState('#d5e0ff')
+  const [headerBg, setHeaderBg] = useState('#e1eaff')
+  const [showProgressivo, setShowProgressivo] = useState(true)
+  const [showDataIntervento, setShowDataIntervento] = useState(true)
+  const [showTracingNumber, setShowTracingNumber] = useState(true)
+  const [showGaranzia, setShowGaranzia] = useState(true)
+  const [showManutenzioneOrd, setShowManutenzioneOrd] = useState(true)
+  const [showManutenzioneExtra, setShowManutenzioneExtra] = useState(true)
+  const [showModelliMatricole, setShowModelliMatricole] = useState(true)
+  const [includePage2, setIncludePage2] = useState(true)
+  const [includePage3, setIncludePage3] = useState(true)
+  const [rowsRicambi, setRowsRicambi] = useState(8)
+  const [rowsIntervento, setRowsIntervento] = useState(8)
   const [busy, setBusy] = useState(false)
+  const [previewBusy, setPreviewBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null)
+  const [previewPdfDoc, setPreviewPdfDoc] = useState<PDFDocumentProxy | null>(null)
+  const [previewZoom, setPreviewZoom] = useState(0.85)
+  const previewDocRef = useRef<PDFDocumentProxy | null>(null)
 
-  const onRun = useCallback(async () => {
-    setError(null)
-    setBusy(true)
-    try {
-      const pdf = await PDFDocument.create()
-      const form = pdf.getForm()
+  useEffect(() => {
+    return () => {
+      void previewDocRef.current?.destroy()
+      previewDocRef.current = null
+    }
+  }, [])
 
-      const font = await pdf.embedFont(StandardFonts.Helvetica)
-      const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
-
-      const lightBlue = rgb(0.83, 0.88, 1)
-      const headerBlue = rgb(0.88, 0.92, 1)
-      const border = rgb(0, 0, 0)
-
-      const a4 = { w: 595.28, h: 841.89 }
-      const margin = 40
-
-      const logoBytes = logo ? await readBytes(logo) : null
-      const embeddedLogo =
-        logoBytes && logo
-          ? (logo.type === 'image/png' || logo.name.toLowerCase().endsWith('.png')
-              ? await pdf.embedPng(logoBytes)
-              : await pdf.embedJpg(logoBytes))
-          : null
-
-      const drawBox = (
-        page: PDFPage,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-        fill?: ReturnType<typeof rgb>,
-      ) => {
-        page.drawRectangle({
-          x,
-          y,
-          width,
-          height,
-          color: fill ?? rgb(1, 1, 1),
-          borderColor: border,
-          borderWidth: 1,
-        })
-      }
-
-      const addTextField = (
-        name: string,
-        page: PDFPage,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-        fontSize: number,
-        fill?: ReturnType<typeof rgb>,
-      ) => {
-        drawBox(page, x, y, width, height, fill)
-        const field = form.createTextField(name)
-        field.addToPage(page, { x, y, width, height, font, borderWidth: 0 })
-        try {
-          field.setFontSize(fontSize)
-        } catch {
-          void 0
+  useEffect(() => {
+    let cancelled = false
+    setPreviewPdfDoc(null)
+    if (!previewBytes) return
+    void (async () => {
+      try {
+        const doc = await loadPdfDocument(previewBytes)
+        if (cancelled) {
+          await doc.destroy()
+          return
         }
+        void previewDocRef.current?.destroy()
+        previewDocRef.current = doc
+        setPreviewPdfDoc(doc)
+      } catch {
+        void 0
       }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [previewBytes])
 
-      const addMultilineTextField = (
-        name: string,
-        page: PDFPage,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-        fontSize: number,
-        fill?: ReturnType<typeof rgb>,
-      ) => {
-        drawBox(page, x, y, width, height, fill)
-        const field = form.createTextField(name)
-        try {
-          field.enableMultiline()
-        } catch {
-          void 0
-        }
-        field.addToPage(page, { x, y, width, height, font, borderWidth: 0 })
-        try {
-          field.setFontSize(fontSize)
-        } catch {
-          void 0
-        }
-      }
+  const buildPdfBytes = useCallback(async () => {
+    const pdf = await PDFDocument.create()
+    const form = pdf.getForm()
 
-      const addCheckBoxOnPage = (name: string, page: PDFPage, x: number, y: number, size: number) => {
-        drawBox(page, x, y, size, size, rgb(1, 1, 1))
-        const field = form.createCheckBox(name)
-        field.addToPage(page, { x, y, width: size, height: size, borderWidth: 0 })
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+
+    const fillBg = hexToRgb01(fieldBg)
+    const headerBlue = hexToRgb01(headerBg)
+    const border = rgb(0, 0, 0)
+
+    const a4 = { w: 595.28, h: 841.89 }
+    const margin = 40
+
+    const logoBytes = logo ? await readBytes(logo) : null
+    const embeddedLogo =
+      logoBytes && logo
+        ? (logo.type === 'image/png' || logo.name.toLowerCase().endsWith('.png')
+            ? await pdf.embedPng(logoBytes)
+            : await pdf.embedJpg(logoBytes))
+        : null
+
+    const drawBox = (
+      page: PDFPage,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      fill?: ReturnType<typeof rgb>,
+    ) => {
+      page.drawRectangle({
+        x,
+        y,
+        width,
+        height,
+        color: fill ?? rgb(1, 1, 1),
+        borderColor: border,
+        borderWidth: 1,
+      })
+    }
+
+    const addTextField = (
+      name: string,
+      page: PDFPage,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      fontSize: number,
+      fill?: ReturnType<typeof rgb>,
+    ) => {
+      drawBox(page, x, y, width, height, fill)
+      const field = form.createTextField(name)
+      field.addToPage(page, { x, y, width, height, font, borderWidth: 0 })
+      try {
+        field.setFontSize(fontSize)
+      } catch {
+        void 0
       }
+    }
+
+    const addMultilineTextField = (
+      name: string,
+      page: PDFPage,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      fontSize: number,
+      fill?: ReturnType<typeof rgb>,
+    ) => {
+      drawBox(page, x, y, width, height, fill)
+      const field = form.createTextField(name)
+      try {
+        field.enableMultiline()
+      } catch {
+        void 0
+      }
+      field.addToPage(page, { x, y, width, height, font, borderWidth: 0 })
+      try {
+        field.setFontSize(fontSize)
+      } catch {
+        void 0
+      }
+    }
+
+    const addCheckBoxOnPage = (name: string, page: PDFPage, x: number, y: number, size: number) => {
+      drawBox(page, x, y, size, size, rgb(1, 1, 1))
+      const field = form.createCheckBox(name)
+      field.addToPage(page, { x, y, width: size, height: size, borderWidth: 0 })
+    }
 
       const drawLogo = (page: PDFPage, x: number, y: number, width: number, height: number) => {
         if (embeddedLogo) {
@@ -1006,6 +1068,7 @@ function GenerateHydronicFormTool() {
       }
 
       const drawHeaderProgressivo = (page: PDFPage, topY: number, prefix: string) => {
+        if (!showProgressivo) return
         const right = a4.w - margin
         const boxW = 215
         const labelSize = 9
@@ -1035,7 +1098,7 @@ function GenerateHydronicFormTool() {
         page.drawText(title, { x: x + 8, y: y + 5, size: 10, font: fontBold })
       }
 
-      const p1 = pdf.addPage([a4.w, a4.h])
+    const p1 = pdf.addPage([a4.w, a4.h])
       const p1Top = a4.h - margin
 
       drawHeaderLogo(p1, p1Top)
@@ -1044,35 +1107,56 @@ function GenerateHydronicFormTool() {
       const right = a4.w - margin
       const headerRightBoxW = 215
       const headerRightBoxX = right - headerRightBoxW
-      p1.drawText('N. progressivo rapporto', { x: headerRightBoxX, y: p1Top - 48, size: 9, font: fontBold })
-      addTextField('p1_n_progressivo_rapporto', p1, headerRightBoxX, p1Top - 68, headerRightBoxW, 18, 11)
-
-      p1.drawText('Data intervento', { x: headerRightBoxX, y: p1Top - 86, size: 9, font: fontBold })
-      addTextField('p1_data_intervento', p1, headerRightBoxX, p1Top - 106, headerRightBoxW, 18, 11)
+      let headerCursorY = p1Top - 48
+      if (showProgressivo) {
+        p1.drawText('N. progressivo rapporto', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
+        addTextField('p1_n_progressivo_rapporto', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
+        headerCursorY -= 38
+      }
+      if (showDataIntervento) {
+        p1.drawText('Data intervento', { x: headerRightBoxX, y: headerCursorY, size: 9, font: fontBold })
+        addTextField('p1_data_intervento', p1, headerRightBoxX, headerCursorY - 20, headerRightBoxW, 18, 11)
+        headerCursorY -= 38
+      }
 
       const title = 'MODULO INTERVENTO IDRONICI'
       const titleSize = 18
       const titleW = fontBold.widthOfTextAtSize(title, titleSize)
-      const titleY = p1Top - 140
+      const titleY = Math.min(p1Top - 120, headerCursorY - 34)
       p1.drawText(title, { x: Math.max(margin, a4.w / 2 - titleW / 2), y: titleY, size: titleSize, font: fontBold })
 
-      const rowY = titleY - 52
-      drawBox(p1, margin, rowY, a4.w - margin * 2, 42, rgb(1, 1, 1))
-      p1.drawLine({ start: { x: 190, y: rowY }, end: { x: 190, y: rowY + 42 }, color: border, thickness: 1 })
-      p1.drawLine({ start: { x: 360, y: rowY }, end: { x: 360, y: rowY + 42 }, color: border, thickness: 1 })
-      p1.drawLine({ start: { x: 450, y: rowY }, end: { x: 450, y: rowY + 42 }, color: border, thickness: 1 })
+      let cursorAfterTopRowY = titleY
+      const topRowItems = [] as Array<{ kind: 'text' | 'checkbox'; label: string; name: string }>
+      if (showTracingNumber) topRowItems.push({ kind: 'text', label: 'Tracing Number', name: 'p1_tracing_number' })
+      if (showGaranzia) topRowItems.push({ kind: 'text', label: 'Garanzia', name: 'p1_garanzia' })
+      if (showManutenzioneOrd) topRowItems.push({ kind: 'checkbox', label: 'Manutenzione Ord.', name: 'p1_manutenzione_ord' })
+      if (showManutenzioneExtra) topRowItems.push({ kind: 'checkbox', label: 'Manutenzione Extra', name: 'p1_manutenzione_extra' })
 
-      p1.drawText('Tracing Number', { x: margin + 10, y: rowY + 26, size: 9, font: fontBold })
-      addTextField('p1_tracing_number', p1, margin + 10, rowY + 6, 130, 16, 10, lightBlue)
-
-      p1.drawText('Garanzia', { x: 200, y: rowY + 26, size: 9, font: fontBold })
-      addTextField('p1_garanzia', p1, 200, rowY + 6, 150, 16, 10, lightBlue)
-
-      p1.drawText('Manutenzione Ord.', { x: 370, y: rowY + 26, size: 9, font: fontBold })
-      addCheckBoxOnPage('p1_manutenzione_ord', p1, 430, rowY + 10, 12)
-
-      p1.drawText('Manutenzione Extra', { x: 460, y: rowY + 26, size: 9, font: fontBold })
-      addCheckBoxOnPage('p1_manutenzione_extra', p1, 535, rowY + 10, 12)
+      if (topRowItems.length > 0) {
+        const rowY = titleY - 52
+        cursorAfterTopRowY = rowY
+        const rowX = margin
+        const rowW = a4.w - margin * 2
+        const rowH = 42
+        drawBox(p1, rowX, rowY, rowW, rowH, rgb(1, 1, 1))
+        const weights = topRowItems.map((i) => (i.kind === 'text' ? 2 : 1))
+        const total = weights.reduce((a, b) => a + b, 0)
+        let cx = rowX
+        for (let i = 0; i < topRowItems.length; i += 1) {
+          const item = topRowItems[i]
+          const segW = Math.round((rowW * weights[i]) / total)
+          if (i > 0) {
+            p1.drawLine({ start: { x: cx, y: rowY }, end: { x: cx, y: rowY + rowH }, color: border, thickness: 1 })
+          }
+          p1.drawText(item.label, { x: cx + 10, y: rowY + 26, size: 9, font: fontBold })
+          if (item.kind === 'text') {
+            addTextField(item.name, p1, cx + 10, rowY + 6, Math.max(80, segW - 20), 16, 10, fillBg)
+          } else {
+            addCheckBoxOnPage(item.name, p1, cx + segW - 22, rowY + 10, 12)
+          }
+          cx += segW
+        }
+      }
 
       const sectionX = margin
       const sectionW = a4.w - margin * 2
@@ -1089,77 +1173,80 @@ function GenerateHydronicFormTool() {
       const addrProvX = addrCittaX + addrCittaW + addrGap
       const addrCapX = addrProvX + addrProvW + addrGap
 
-      const machineH = 56
-      const machineTop = rowY - 16
-      drawBox(p1, sectionX, machineTop - machineH, sectionW, machineH, rgb(1, 1, 1))
-      p1.drawText('Modello/i macchina', { x: sectionX + 10, y: machineTop - 18, size: 9, font: fontBold })
-      p1.drawText('Matricola/e', { x: sectionX + 340, y: machineTop - 18, size: 9, font: fontBold })
-      addMultilineTextField(
-        'p1_modelli_macchina',
-        p1,
-        sectionX + 10,
-        machineTop - 48,
-        320,
-        30,
-        10,
-        lightBlue,
-      )
-      addMultilineTextField(
-        'p1_matricole',
-        p1,
-        sectionX + 340,
-        machineTop - 48,
-        sectionW - 350,
-        30,
-        10,
-        lightBlue,
-      )
-
-      const utenteTop = machineTop - machineH - 26
+      let utenteTop = cursorAfterTopRowY - 40
+      if (showModelliMatricole) {
+        const machineH = 56
+        const machineTop = cursorAfterTopRowY - 16
+        drawBox(p1, sectionX, machineTop - machineH, sectionW, machineH, rgb(1, 1, 1))
+        p1.drawText('Modello/i macchina', { x: sectionX + 10, y: machineTop - 18, size: 9, font: fontBold })
+        p1.drawText('Matricola/e', { x: sectionX + 340, y: machineTop - 18, size: 9, font: fontBold })
+        addMultilineTextField(
+          'p1_modelli_macchina',
+          p1,
+          sectionX + 10,
+          machineTop - 48,
+          320,
+          30,
+          10,
+          fillBg,
+        )
+        addMultilineTextField(
+          'p1_matricole',
+          p1,
+          sectionX + 340,
+          machineTop - 48,
+          sectionW - 350,
+          30,
+          10,
+          fillBg,
+        )
+        utenteTop = machineTop - machineH - 26
+      }
       drawBox(p1, sectionX, utenteTop - sectionH, sectionW, sectionH, rgb(1, 1, 1))
       drawSectionHeader(p1, sectionX, utenteTop - 22, sectionW, 'Utente  Nome/Ragione sociale')
-      addTextField('p1_utente_nome', p1, sectionX + 10, utenteTop - 46, sectionW - 20, 18, 10, lightBlue)
+      addTextField('p1_utente_nome', p1, sectionX + 10, utenteTop - 46, sectionW - 20, 18, 10, fillBg)
       p1.drawText('Via', { x: sectionX + 10, y: utenteTop - 70, size: 9, font: fontBold })
-      addTextField('p1_utente_via', p1, addrViaX, utenteTop - 90, addrViaW, 18, 10, lightBlue)
+      addTextField('p1_utente_via', p1, addrViaX, utenteTop - 90, addrViaW, 18, 10, fillBg)
       p1.drawText('Città', { x: addrCittaX, y: utenteTop - 70, size: 9, font: fontBold })
-      addTextField('p1_utente_citta', p1, addrCittaX, utenteTop - 90, addrCittaW, 18, 10, lightBlue)
+      addTextField('p1_utente_citta', p1, addrCittaX, utenteTop - 90, addrCittaW, 18, 10, fillBg)
       p1.drawText('Prov.', { x: addrProvX, y: utenteTop - 70, size: 9, font: fontBold })
-      addTextField('p1_utente_prov', p1, addrProvX, utenteTop - 90, addrProvW, 18, 10, lightBlue)
+      addTextField('p1_utente_prov', p1, addrProvX, utenteTop - 90, addrProvW, 18, 10, fillBg)
       p1.drawText('CAP', { x: addrCapX, y: utenteTop - 70, size: 9, font: fontBold })
-      addTextField('p1_utente_cap', p1, addrCapX, utenteTop - 90, addrCapW, 18, 10, lightBlue)
+      addTextField('p1_utente_cap', p1, addrCapX, utenteTop - 90, addrCapW, 18, 10, fillBg)
       p1.drawText('Tel', { x: sectionX + 10, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 134, 140, 18, 10, lightBlue)
+      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 134, 140, 18, 10, fillBg)
       p1.drawText('Fax', { x: sectionX + 160, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 134, 140, 18, 10, lightBlue)
+      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 134, 140, 18, 10, fillBg)
       p1.drawText('E-mail', { x: sectionX + 310, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 134, sectionW - 320, 18, 10, lightBlue)
+      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 134, sectionW - 320, 18, 10, fillBg)
 
       const instTop = utenteTop - sectionH - gap
       drawBox(p1, sectionX, instTop - sectionH, sectionW, sectionH, rgb(1, 1, 1))
       drawSectionHeader(p1, sectionX, instTop - 22, sectionW, 'Installatore  Nome/Ragione sociale')
-      addTextField('p1_installatore_nome', p1, sectionX + 10, instTop - 46, sectionW - 20, 18, 10, lightBlue)
+      addTextField('p1_installatore_nome', p1, sectionX + 10, instTop - 46, sectionW - 20, 18, 10, fillBg)
       p1.drawText('Via', { x: sectionX + 10, y: instTop - 70, size: 9, font: fontBold })
-      addTextField('p1_installatore_via', p1, addrViaX, instTop - 90, addrViaW, 18, 10, lightBlue)
+      addTextField('p1_installatore_via', p1, addrViaX, instTop - 90, addrViaW, 18, 10, fillBg)
       p1.drawText('Città', { x: addrCittaX, y: instTop - 70, size: 9, font: fontBold })
-      addTextField('p1_installatore_citta', p1, addrCittaX, instTop - 90, addrCittaW, 18, 10, lightBlue)
+      addTextField('p1_installatore_citta', p1, addrCittaX, instTop - 90, addrCittaW, 18, 10, fillBg)
       p1.drawText('Prov.', { x: addrProvX, y: instTop - 70, size: 9, font: fontBold })
-      addTextField('p1_installatore_prov', p1, addrProvX, instTop - 90, addrProvW, 18, 10, lightBlue)
+      addTextField('p1_installatore_prov', p1, addrProvX, instTop - 90, addrProvW, 18, 10, fillBg)
       p1.drawText('CAP', { x: addrCapX, y: instTop - 70, size: 9, font: fontBold })
-      addTextField('p1_installatore_cap', p1, addrCapX, instTop - 90, addrCapW, 18, 10, lightBlue)
+      addTextField('p1_installatore_cap', p1, addrCapX, instTop - 90, addrCapW, 18, 10, fillBg)
       p1.drawText('Tel', { x: sectionX + 10, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 134, 140, 18, 10, lightBlue)
+      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 134, 140, 18, 10, fillBg)
       p1.drawText('Fax', { x: sectionX + 160, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 134, 140, 18, 10, lightBlue)
+      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 134, 140, 18, 10, fillBg)
       p1.drawText('E-mail', { x: sectionX + 310, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 134, sectionW - 320, 18, 10, lightBlue)
+      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 134, sectionW - 320, 18, 10, fillBg)
 
       p1.drawText('Responsabile presente', { x: sectionX + 10, y: instTop - 162, size: 9, font: fontBold })
-      addTextField('p1_responsabile_presente', p1, sectionX + 10, instTop - 182, sectionW - 20, 18, 10, lightBlue)
+      addTextField('p1_responsabile_presente', p1, sectionX + 10, instTop - 182, sectionW - 20, 18, 10, fillBg)
 
-      const p2 = pdf.addPage([a4.w, a4.h])
-      const p2Top = a4.h - margin
-      drawHeaderLogo(p2, p2Top)
-      drawHeaderProgressivo(p2, p2Top, 'p2')
+      if (includePage2) {
+        const p2 = pdf.addPage([a4.w, a4.h])
+        const p2Top = a4.h - margin
+        drawHeaderLogo(p2, p2Top)
+        drawHeaderProgressivo(p2, p2Top, 'p2')
 
       const section2X = margin
       const section2W = a4.w - margin * 2
@@ -1167,17 +1254,17 @@ function GenerateHydronicFormTool() {
 
       const drawBigField = (label: string, fieldName: string, height: number) => {
         p2.drawText(label, { x: section2X, y: cursorY - 12, size: 9, font: fontBold })
-        addMultilineTextField(fieldName, p2, section2X, cursorY - 12 - height - 6, section2W, height, 10, lightBlue)
+        addMultilineTextField(fieldName, p2, section2X, cursorY - 12 - height - 6, section2W, height, 10, fillBg)
         cursorY = cursorY - 12 - height - 18
       }
 
-      drawBigField('Difetto lamentato', 'p2_difetto_lamentato', 64)
-      drawBigField('Descrizione delle anomalie riscontrate', 'p2_descrizione_anomalie', 64)
-      drawBigField(
-        'Lavori eseguiti (nel caso di interventi/regolazioni di bruciatori di caldaie allegare obbligatoriamente l’analisi dei fumi)',
-        'p2_lavori_eseguiti',
-        82,
-      )
+        drawBigField('Difetto lamentato', 'p2_difetto_lamentato', 64)
+        drawBigField('Descrizione delle anomalie riscontrate', 'p2_descrizione_anomalie', 64)
+        drawBigField(
+          'Lavori eseguiti (nel caso di interventi/regolazioni di bruciatori di caldaie allegare obbligatoriamente l’analisi dei fumi)',
+          'p2_lavori_eseguiti',
+          82,
+        )
 
       const sigTop = cursorY - 10
       drawBox(p2, section2X, sigTop - 80, section2W, 80, rgb(1, 1, 1))
@@ -1186,13 +1273,13 @@ function GenerateHydronicFormTool() {
 
       p2.drawText('Nome e cognome del tecnico in stampatello', { x: section2X + 6, y: sigTop - 14, size: 8, font: fontBold })
       p2.drawText('Nome e cognome cliente in stampatello', { x: section2X + section2W / 2 + 6, y: sigTop - 14, size: 8, font: fontBold })
-      addTextField('p2_tecnico_nome', p2, section2X + 6, sigTop - 34, section2W / 2 - 12, 16, 10, lightBlue)
-      addTextField('p2_cliente_nome', p2, section2X + section2W / 2 + 6, sigTop - 34, section2W / 2 - 12, 16, 10, lightBlue)
+      addTextField('p2_tecnico_nome', p2, section2X + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
+      addTextField('p2_cliente_nome', p2, section2X + section2W / 2 + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
 
       p2.drawText('Firma del Tecnico', { x: section2X + 6, y: sigTop - 54, size: 8, font: fontBold })
       p2.drawText('Firma per accettazione', { x: section2X + section2W / 2 + 6, y: sigTop - 54, size: 8, font: fontBold })
-      addMultilineTextField('p2_firma_tecnico', p2, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, 10, lightBlue)
-      addMultilineTextField('p2_firma_accettazione', p2, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, 10, lightBlue)
+      addMultilineTextField('p2_firma_tecnico', p2, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, 10, fillBg)
+      addMultilineTextField('p2_firma_accettazione', p2, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, 10, fillBg)
 
       cursorY = sigTop - 96
 
@@ -1234,55 +1321,58 @@ function GenerateHydronicFormTool() {
           let fx = x
           for (let c = 0; c < headers.length; c += 1) {
             const fw = colWidths[c]
-            addTextField(`${fieldPrefix}_${r}_${c}`, page, fx + 1, ry + 2, fw - 2, rowH - 4, 9, lightBlue)
+            addTextField(`${fieldPrefix}_${r}_${c}`, page, fx + 1, ry + 2, fw - 2, rowH - 4, 9, fillBg)
             fx += fw
           }
         }
       }
 
-      drawTable(
-        p2,
-        section2X,
-        tableY,
-        tableW,
-        tableH,
-        'Ricambi',
-        ['Qta', 'Descrizione', 'Codice'],
-        [36, tableW - 36 - 74, 74],
-        8,
-        'p2_ricambi',
-      )
+        drawTable(
+          p2,
+          section2X,
+          tableY,
+          tableW,
+          tableH,
+          'Ricambi',
+          ['Qta', 'Descrizione', 'Codice'],
+          [36, tableW - 36 - 74, 74],
+          Math.max(1, Math.min(12, rowsRicambi)),
+          'p2_ricambi',
+        )
 
-      drawTable(
-        p2,
-        section2X + tableW + tableGap,
-        tableY,
-        tableW,
-        tableH,
-        'Intervento',
-        ['Descrizione', 'Codice', 'UM', 'Qta'],
-        [tableW - 70 - 36 - 36, 70, 36, 36],
-        8,
-        'p2_intervento',
-      )
+        drawTable(
+          p2,
+          section2X + tableW + tableGap,
+          tableY,
+          tableW,
+          tableH,
+          'Intervento',
+          ['Descrizione', 'Codice', 'UM', 'Qta'],
+          [tableW - 70 - 36 - 36, 70, 36, 36],
+          Math.max(1, Math.min(12, rowsIntervento)),
+          'p2_intervento',
+        )
+      }
 
-      const p3 = pdf.addPage([a4.w, a4.h])
-      const p3Top = a4.h - margin
-      drawHeaderLogo(p3, p3Top)
-      drawHeaderProgressivo(p3, p3Top, 'p3')
+      if (includePage3) {
+        const p3 = pdf.addPage([a4.w, a4.h])
+        const p3Top = a4.h - margin
+        drawHeaderLogo(p3, p3Top)
+        drawHeaderProgressivo(p3, p3Top, 'p3')
 
       const notesTop = p3Top - 80
-      p3.drawText('Note Aggiuntive', { x: margin, y: notesTop - 12, size: 9, font: fontBold })
-      addMultilineTextField(
-        'p3_note_aggiuntive',
-        p3,
-        margin,
-        margin,
-        a4.w - margin * 2,
-        notesTop - margin - 24,
-        10,
-        lightBlue,
-      )
+        p3.drawText('Note Aggiuntive', { x: margin, y: notesTop - 12, size: 9, font: fontBold })
+        addMultilineTextField(
+          'p3_note_aggiuntive',
+          p3,
+          margin,
+          margin,
+          a4.w - margin * 2,
+          notesTop - margin - 24,
+          10,
+          fillBg,
+        )
+      }
 
       try {
         form.updateFieldAppearances(font)
@@ -1290,8 +1380,52 @@ function GenerateHydronicFormTool() {
         void 0
       }
 
-      const bytes = await pdf.save({ updateFieldAppearances: false })
-      const safeName = (companyName || 'azienda').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '').slice(0, 24) || 'azienda'
+    return await pdf.save({ updateFieldAppearances: false })
+  }, [
+    companyName,
+    companySubline,
+    fieldBg,
+    headerBg,
+    includePage2,
+    includePage3,
+    logo,
+    rowsIntervento,
+    rowsRicambi,
+    showDataIntervento,
+    showGaranzia,
+    showManutenzioneExtra,
+    showManutenzioneOrd,
+    showModelliMatricole,
+    showProgressivo,
+    showTracingNumber,
+  ])
+
+  const onUpdatePreview = useCallback(async () => {
+    setError(null)
+    setPreviewBusy(true)
+    try {
+      const bytes = await buildPdfBytes()
+      setPreviewBytes(bytes)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(message)
+    } finally {
+      setPreviewBusy(false)
+    }
+  }, [buildPdfBytes])
+
+  const onDownload = useCallback(async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      const bytes = await buildPdfBytes()
+      const safeName =
+        (companyName || 'azienda')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_-]/g, '')
+          .slice(0, 24) || 'azienda'
       downloadBytes(bytes, `modulo_intervento_idronico_${safeName}.pdf`)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -1299,7 +1433,7 @@ function GenerateHydronicFormTool() {
     } finally {
       setBusy(false)
     }
-  }, [companyName, companySubline, logo])
+  }, [buildPdfBytes, companyName])
 
   return (
     <div className="toolForm">
@@ -1327,10 +1461,136 @@ function GenerateHydronicFormTool() {
         </label>
       </div>
       {logo ? <div className="sidebarHint">Selezionato: {logo.name}</div> : null}
+
+      <div className="noticeBanner">
+        Modifica le opzioni e poi premi “Aggiorna anteprima”. Quando sei soddisfatto, premi “Scarica PDF”.
+      </div>
+
+      <label className="field">
+        <div className="fieldLabel">Colore campi (background)</div>
+        <input className="input" type="color" value={fieldBg} onChange={(e) => setFieldBg(e.target.value)} />
+      </label>
+      <label className="field">
+        <div className="fieldLabel">Colore intestazioni (background)</div>
+        <input className="input" type="color" value={headerBg} onChange={(e) => setHeaderBg(e.target.value)} />
+      </label>
+
+      <div className="noticeBanner">
+        Caselle / sezioni (attiva o disattiva ciò che vuoi nel modulo)
+      </div>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showProgressivo} onChange={(e) => setShowProgressivo(e.target.checked)} />
+        <div className="fieldLabel">N. progressivo rapporto</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showDataIntervento} onChange={(e) => setShowDataIntervento(e.target.checked)} />
+        <div className="fieldLabel">Data intervento</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showTracingNumber} onChange={(e) => setShowTracingNumber(e.target.checked)} />
+        <div className="fieldLabel">Tracing Number</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showGaranzia} onChange={(e) => setShowGaranzia(e.target.checked)} />
+        <div className="fieldLabel">Garanzia</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showManutenzioneOrd} onChange={(e) => setShowManutenzioneOrd(e.target.checked)} />
+        <div className="fieldLabel">Manutenzione Ord.</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showManutenzioneExtra} onChange={(e) => setShowManutenzioneExtra(e.target.checked)} />
+        <div className="fieldLabel">Manutenzione Extra</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={showModelliMatricole} onChange={(e) => setShowModelliMatricole(e.target.checked)} />
+        <div className="fieldLabel">Modello/i + Matricola/e</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={includePage2} onChange={(e) => setIncludePage2(e.target.checked)} />
+        <div className="fieldLabel">Includi pagina 2 (difetti / firme / tabelle)</div>
+      </label>
+      <label className="field fieldInline">
+        <input type="checkbox" checked={includePage3} onChange={(e) => setIncludePage3(e.target.checked)} />
+        <div className="fieldLabel">Includi pagina 3 (note aggiuntive)</div>
+      </label>
+
+      {includePage2 ? (
+        <>
+          <label className="field">
+            <div className="fieldLabel">Righe tabella Ricambi (1–12)</div>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={12}
+              value={rowsRicambi}
+              onChange={(e) => setRowsRicambi(Math.max(1, Math.min(12, Number(e.target.value || '8'))))}
+            />
+          </label>
+          <label className="field">
+            <div className="fieldLabel">Righe tabella Intervento (1–12)</div>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={12}
+              value={rowsIntervento}
+              onChange={(e) => setRowsIntervento(Math.max(1, Math.min(12, Number(e.target.value || '8'))))}
+            />
+          </label>
+        </>
+      ) : null}
+
       {error ? <div className="errorBanner">{error}</div> : null}
-      <button className="btn btnPrimary" disabled={busy} onClick={() => void onRun()} type="button">
-        {busy ? 'Genero…' : 'Genera e scarica PDF'}
-      </button>
+
+      <div className="sidebarRow">
+        <button className="btn" disabled={previewBusy || busy} onClick={() => void onUpdatePreview()} type="button">
+          {previewBusy ? 'Genero anteprima…' : 'Aggiorna anteprima'}
+        </button>
+        <button className="btn btnPrimary" disabled={busy || previewBusy} onClick={() => void onDownload()} type="button">
+          {busy ? 'Genero…' : 'Scarica PDF'}
+        </button>
+      </div>
+
+      {previewPdfDoc ? (
+        <div className="toolPreview">
+          <div className="toolPreviewBar">
+            <div className="sidebarHint">Pagine generate: {previewPdfDoc.numPages}</div>
+            <div className="toolPreviewZoom">
+              <button
+                className="btn btnSmall"
+                type="button"
+                onClick={() => setPreviewZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))}
+              >
+                -
+              </button>
+              <div className="sidebarHint">{Math.round(previewZoom * 100)}%</div>
+              <button
+                className="btn btnSmall"
+                type="button"
+                onClick={() => setPreviewZoom((z) => Math.min(2, Math.round((z + 0.1) * 10) / 10))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <div className="toolPreviewViewport">
+            <PdfViewer
+              pdfDoc={previewPdfDoc}
+              zoom={previewZoom}
+              elements={[]}
+              selectedId={null}
+              onSelect={() => {}}
+              onElementChange={() => {}}
+              onElementDelete={() => {}}
+              onElementDuplicate={() => {}}
+              drawKind={null}
+              onCreateElement={() => {}}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
