@@ -1623,7 +1623,11 @@ function GenerateHydronicFormTool() {
     }
   }, [buildPdfBytes])
 
+  const prevLayoutModeRef = useRef(layoutMode)
   useEffect(() => {
+    const layoutChanged = prevLayoutModeRef.current !== layoutMode
+    prevLayoutModeRef.current = layoutMode
+    if (!layoutChanged) return
     if (!previewBytes) return
     void onUpdatePreview()
   }, [layoutMode, onUpdatePreview, previewBytes])
