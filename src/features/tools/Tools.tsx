@@ -1157,14 +1157,17 @@ function GenerateHydronicFormTool() {
         drawLogo(page, x, y, logoW, logoH)
       }
 
-      const drawCompanyRight = (page: PDFPage, topY: number, rightLimitX?: number) => {
+      const drawCompanyRight = (page: PDFPage, topY: number, rightLimitX?: number, bottomLimitY?: number) => {
         const right = rightLimitX ?? a4.w - margin
         const leftMin = margin + Math.max(80, Math.min(360, Math.round(logoBoxW))) + 10
         const maxWidth = Math.max(60, right - leftMin)
         const name = (companyName || 'La mia azienda').trim()
         const sub = (companySubline || '').replace(/\r\n/g, '\n').trim()
 
-        const maxHeight = Math.max(24, Math.min(120, Math.round(Math.max(logoBoxH, 46))) - 4)
+        const logoH = Math.max(20, Math.min(120, Math.round(logoBoxH)))
+        const maxHeightByLogo = Math.max(8, Math.min(120, logoH - 4))
+        const maxHeightByBottom = bottomLimitY ? Math.max(8, Math.min(120, topY - bottomLimitY - 4)) : maxHeightByLogo
+        const maxHeight = Math.max(8, Math.min(maxHeightByLogo, maxHeightByBottom))
         const minNameSize = 10
         const minSubSize = 7
 
@@ -1173,12 +1176,14 @@ function GenerateHydronicFormTool() {
 
         let nameLines: string[] = []
         let subLines: string[] = []
+        let maxNameLines = 2
+        let maxSubLines = 6
         for (let attempt = 0; attempt < 8; attempt += 1) {
-          nameLines = name ? wrapTextToWidth(fontBold, name, fittedNameSize, maxWidth).slice(0, 2) : []
+          nameLines = name ? wrapTextToWidth(fontBold, name, fittedNameSize, maxWidth).slice(0, maxNameLines) : []
           const subLinesRaw = sub
             ? sub.split('\n').flatMap((line) => wrapTextToWidth(font, line, fittedSubSize, maxWidth))
             : []
-          subLines = subLinesRaw.slice(0, 6)
+          subLines = subLinesRaw.slice(0, maxSubLines)
 
           const nameH = nameLines.length > 0 ? nameLines.length * Math.max(12, fittedNameSize + 2) : 0
           const subH = subLines.length > 0 ? subLines.length * Math.max(10, fittedSubSize + 2) : 0
@@ -1186,8 +1191,16 @@ function GenerateHydronicFormTool() {
           const totalH = nameH + gapY + subH
 
           if (totalH <= maxHeight) break
-          fittedNameSize = Math.max(minNameSize, Math.floor(fittedNameSize * 0.92))
-          fittedSubSize = Math.max(minSubSize, Math.floor(fittedSubSize * 0.92))
+          if (maxSubLines > 0) {
+            maxSubLines -= 1
+            continue
+          }
+          if (maxNameLines > 1) {
+            maxNameLines -= 1
+            continue
+          }
+          fittedNameSize = Math.max(minNameSize, Math.floor(fittedNameSize * 0.9))
+          fittedSubSize = Math.max(minSubSize, Math.floor(fittedSubSize * 0.9))
           if (fittedNameSize === minNameSize && fittedSubSize === minSubSize) break
         }
 
@@ -1243,16 +1256,17 @@ function GenerateHydronicFormTool() {
       drawHeaderLogo(p1, p1Top)
       const right = a4.w - margin
 
-      const headerRightBoxW = 215
+      const headerRightBoxW = layoutMode === 'riprogramma' ? 250 : 215
       const headerRightBoxX = right - headerRightBoxW
-      const companyRightLimit = showProgressivo || showDataIntervento ? headerRightBoxX - 10 : right
-      drawCompanyRight(p1, p1Top, companyRightLimit)
-      let headerCursorY = p1Top - 48
+      const headerTopY = p1Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+      const headerFieldLabelY = headerTopY - 12
+      drawCompanyRight(p1, p1Top, right)
+      let headerCursorY = headerFieldLabelY
       if (layoutMode === 'riprogramma' && showProgressivo && showDataIntervento) {
         const gap = 10
         const w = Math.floor((headerRightBoxW - gap) / 2)
         const leftX = right - headerRightBoxW
-        const y = p1Top - 46
+        const y = headerFieldLabelY
         p1.drawText('N. progressivo', { x: leftX, y, size: 9, font: fontBold })
         addTextField('p1_n_progressivo_rapporto', p1, leftX, y - 20, w, 18, 11)
         const x2 = leftX + w + gap
@@ -1371,12 +1385,12 @@ function GenerateHydronicFormTool() {
       addTextField('p1_utente_prov', p1, addrProvX, utenteTop - 90, addrProvW, 18, 10, fillBg)
       p1.drawText('CAP', { x: addrCapX, y: utenteTop - 70, size: 9, font: fontBold })
       addTextField('p1_utente_cap', p1, addrCapX, utenteTop - 90, addrCapW, 18, 10, fillBg)
-      p1.drawText('Tel', { x: sectionX + 10, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 132, 140, 18, 10, fillBg)
-      p1.drawText('Fax', { x: sectionX + 160, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 132, 140, 18, 10, fillBg)
-      p1.drawText('E-mail', { x: sectionX + 310, y: utenteTop - 114, size: 9, font: fontBold })
-      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 132, sectionW - 320, 18, 10, fillBg)
+      p1.drawText('Tel', { x: sectionX + 10, y: utenteTop - 110, size: 9, font: fontBold })
+      addTextField('p1_utente_tel', p1, sectionX + 10, utenteTop - 128, 140, 18, 10, fillBg)
+      p1.drawText('Fax', { x: sectionX + 160, y: utenteTop - 110, size: 9, font: fontBold })
+      addTextField('p1_utente_fax', p1, sectionX + 160, utenteTop - 128, 140, 18, 10, fillBg)
+      p1.drawText('E-mail', { x: sectionX + 310, y: utenteTop - 110, size: 9, font: fontBold })
+      addTextField('p1_utente_email', p1, sectionX + 310, utenteTop - 128, sectionW - 320, 18, 10, fillBg)
 
       const instTop = utenteTop - sectionH - gap
       drawBox(p1, sectionX, instTop - sectionH, sectionW, sectionH, rgb(1, 1, 1))
@@ -1390,12 +1404,12 @@ function GenerateHydronicFormTool() {
       addTextField('p1_installatore_prov', p1, addrProvX, instTop - 90, addrProvW, 18, 10, fillBg)
       p1.drawText('CAP', { x: addrCapX, y: instTop - 70, size: 9, font: fontBold })
       addTextField('p1_installatore_cap', p1, addrCapX, instTop - 90, addrCapW, 18, 10, fillBg)
-      p1.drawText('Tel', { x: sectionX + 10, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 132, 140, 18, 10, fillBg)
-      p1.drawText('Fax', { x: sectionX + 160, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 132, 140, 18, 10, fillBg)
-      p1.drawText('E-mail', { x: sectionX + 310, y: instTop - 114, size: 9, font: fontBold })
-      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 132, sectionW - 320, 18, 10, fillBg)
+      p1.drawText('Tel', { x: sectionX + 10, y: instTop - 110, size: 9, font: fontBold })
+      addTextField('p1_installatore_tel', p1, sectionX + 10, instTop - 128, 140, 18, 10, fillBg)
+      p1.drawText('Fax', { x: sectionX + 160, y: instTop - 110, size: 9, font: fontBold })
+      addTextField('p1_installatore_fax', p1, sectionX + 160, instTop - 128, 140, 18, 10, fillBg)
+      p1.drawText('E-mail', { x: sectionX + 310, y: instTop - 110, size: 9, font: fontBold })
+      addTextField('p1_installatore_email', p1, sectionX + 310, instTop - 128, sectionW - 320, 18, 10, fillBg)
 
       const respH = 44
       const respTop = instTop - sectionH - 12
@@ -1408,13 +1422,13 @@ function GenerateHydronicFormTool() {
         const p2Top = a4.h - margin
         drawHeaderLogo(p2, p2Top)
         const right = a4.w - margin
-        const companyRightLimit = showProgressivo ? right - (layoutMode === 'riprogramma' ? 170 : 215) - 10 : right
-        drawCompanyRight(p2, p2Top, companyRightLimit)
-        drawHeaderProgressivo(p2, p2Top, 'p2')
+        const headerTopY = p2Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+        drawCompanyRight(p2, p2Top, right)
+        drawHeaderProgressivo(p2, headerTopY, 'p2')
 
       const section2X = margin
       const section2W = a4.w - margin * 2
-      let cursorY = p2Top - 74
+      let cursorY = Math.min(p2Top - 74, headerTopY - (showProgressivo ? 60 : 20))
 
       const drawBigField = (label: string, fieldName: string, height: number) => {
         p2.drawText(label, { x: section2X, y: cursorY - 12, size: 9, font: fontBold })
@@ -1523,11 +1537,11 @@ function GenerateHydronicFormTool() {
         const p3Top = a4.h - margin
         drawHeaderLogo(p3, p3Top)
         const right = a4.w - margin
-        const companyRightLimit = showProgressivo ? right - (layoutMode === 'riprogramma' ? 170 : 215) - 10 : right
-        drawCompanyRight(p3, p3Top, companyRightLimit)
-        drawHeaderProgressivo(p3, p3Top, 'p3')
+        const headerTopY = p3Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+        drawCompanyRight(p3, p3Top, right)
+        drawHeaderProgressivo(p3, headerTopY, 'p3')
 
-      const notesTop = p3Top - 80
+      const notesTop = Math.min(p3Top - 80, headerTopY - (showProgressivo ? 60 : 20))
         const signatureH = 60
         const signatureGap = 18
         const signatureY = margin
@@ -1608,6 +1622,11 @@ function GenerateHydronicFormTool() {
       setPreviewBusy(false)
     }
   }, [buildPdfBytes])
+
+  useEffect(() => {
+    if (!previewBytes) return
+    void onUpdatePreview()
+  }, [layoutMode, onUpdatePreview, previewBytes])
 
   const onDownload = useCallback(async () => {
     setError(null)
