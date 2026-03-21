@@ -1427,96 +1427,105 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
       p1.drawText('Responsabile presente', { x: sectionX + 10, y: respTop - 16, size: 9, font: fontBold })
       addTextField('p1_responsabile_presente', p1, sectionX + 10, respTop - 36, sectionW - 20, 18, 10, fillBg)
 
-      if (includePage2) {
-        const p2 = pdf.addPage([a4.w, a4.h])
-        const p2Top = a4.h - margin
-        drawHeaderLogo(p2, p2Top)
+      const buildInterventoPage = (page: PDFPage, prefix: 'p2' | 'p3') => {
+        const top = a4.h - margin
+        drawHeaderLogo(page, top)
         const right = a4.w - margin
-        const headerTopY = p2Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
-        drawCompanyRight(p2, p2Top, right)
-        drawHeaderProgressivo(p2, headerTopY, 'p2')
+        const headerTopY = top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+        drawCompanyRight(page, top, right)
+        drawHeaderProgressivo(page, headerTopY, prefix)
 
-      const section2X = margin
-      const section2W = a4.w - margin * 2
-      let cursorY = Math.min(p2Top - 74, headerTopY - (showProgressivo ? 60 : 20))
+        const section2X = margin
+        const section2W = a4.w - margin * 2
+        let cursorY = Math.min(top - 74, headerTopY - (showProgressivo ? 60 : 20))
 
-      const drawBigField = (label: string, fieldName: string, height: number) => {
-        p2.drawText(label, { x: section2X, y: cursorY - 12, size: 9, font: fontBold })
-        addMultilineTextField(fieldName, p2, section2X, cursorY - 12 - height - 6, section2W, height, 10, fillBg)
-        cursorY = cursorY - 12 - height - 18
-      }
+        const drawBigField = (label: string, fieldName: string, height: number) => {
+          page.drawText(label, { x: section2X, y: cursorY - 12, size: 9, font: fontBold })
+          addMultilineTextField(fieldName, page, section2X, cursorY - 12 - height - 6, section2W, height, 10, fillBg)
+          cursorY = cursorY - 12 - height - 18
+        }
 
-        drawBigField('Difetto lamentato', 'p2_difetto_lamentato', 64)
-        drawBigField('Descrizione delle anomalie riscontrate', 'p2_descrizione_anomalie', 64)
+        drawBigField('Difetto lamentato', `${prefix}_difetto_lamentato`, 64)
+        drawBigField('Descrizione delle anomalie riscontrate', `${prefix}_descrizione_anomalie`, 64)
         drawBigField(
           'Lavori eseguiti (nel caso di interventi/regolazioni di bruciatori di caldaie allegare obbligatoriamente l’analisi dei fumi)',
-          'p2_lavori_eseguiti',
+          `${prefix}_lavori_eseguiti`,
           82,
         )
 
-      const sigTop = cursorY - 10
-      drawBox(p2, section2X, sigTop - 80, section2W, 80, rgb(1, 1, 1))
-      p2.drawLine({ start: { x: section2X + section2W / 2, y: sigTop - 80 }, end: { x: section2X + section2W / 2, y: sigTop }, color: border, thickness: 1 })
-      p2.drawLine({ start: { x: section2X, y: sigTop - 40 }, end: { x: section2X + section2W, y: sigTop - 40 }, color: border, thickness: 1 })
+        const sigTop = cursorY - 10
+        drawBox(page, section2X, sigTop - 80, section2W, 80, rgb(1, 1, 1))
+        page.drawLine({
+          start: { x: section2X + section2W / 2, y: sigTop - 80 },
+          end: { x: section2X + section2W / 2, y: sigTop },
+          color: border,
+          thickness: 1,
+        })
+        page.drawLine({
+          start: { x: section2X, y: sigTop - 40 },
+          end: { x: section2X + section2W, y: sigTop - 40 },
+          color: border,
+          thickness: 1,
+        })
 
-      p2.drawText('Nome e cognome del tecnico in stampatello', { x: section2X + 6, y: sigTop - 14, size: 8, font: fontBold })
-      p2.drawText('Nome e cognome cliente in stampatello', { x: section2X + section2W / 2 + 6, y: sigTop - 14, size: 8, font: fontBold })
-      addTextField('p2_tecnico_nome', p2, section2X + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
-      addTextField('p2_cliente_nome', p2, section2X + section2W / 2 + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
+        page.drawText('Nome e cognome del tecnico in stampatello', { x: section2X + 6, y: sigTop - 14, size: 8, font: fontBold })
+        page.drawText('Nome e cognome cliente in stampatello', { x: section2X + section2W / 2 + 6, y: sigTop - 14, size: 8, font: fontBold })
+        addTextField(`${prefix}_tecnico_nome`, page, section2X + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
+        addTextField(`${prefix}_cliente_nome`, page, section2X + section2W / 2 + 6, sigTop - 34, section2W / 2 - 12, 16, 10, fillBg)
 
-      p2.drawText('Firma del Tecnico', { x: section2X + 6, y: sigTop - 54, size: 8, font: fontBold })
-      p2.drawText('Firma per accettazione', { x: section2X + section2W / 2 + 6, y: sigTop - 54, size: 8, font: fontBold })
-      addSignatureField('p2_firma_tecnico', p2, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
-      addSignatureField('p2_firma_accettazione', p2, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
+        page.drawText('Firma del Tecnico', { x: section2X + 6, y: sigTop - 54, size: 8, font: fontBold })
+        page.drawText('Firma per accettazione', { x: section2X + section2W / 2 + 6, y: sigTop - 54, size: 8, font: fontBold })
+        addSignatureField(`${prefix}_firma_tecnico`, page, section2X + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
+        addSignatureField(`${prefix}_firma_accettazione`, page, section2X + section2W / 2 + 6, sigTop - 76, section2W / 2 - 12, 20, fillBg)
 
-      cursorY = sigTop - 96
+        cursorY = sigTop - 96
 
-      const tableGap = 22
-      const tableH = 120
-      const tableW = (section2W - tableGap) / 2
-      const tableY = cursorY - tableH
+        const tableGap = 22
+        const tableH = 120
+        const tableW = (section2W - tableGap) / 2
+        const tableY = cursorY - tableH
 
-      const drawTable = (
-        page: PDFPage,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-        title: string,
-        headers: string[],
-        colWidths: number[],
-        rows: number,
-        fieldPrefix: string,
-      ) => {
-        drawBox(page, x, y, width, height, rgb(1, 1, 1))
-        page.drawText(title, { x: x - 24, y: y + height / 2 - 10, size: 8, font: fontBold, rotate: degrees(90) })
-        const headerH = 16
-        page.drawRectangle({ x, y: y + height - headerH, width, height: headerH, color: rgb(1, 1, 1), borderColor: border, borderWidth: 1 })
+        const drawTable = (
+          tPage: PDFPage,
+          x: number,
+          y: number,
+          width: number,
+          height: number,
+          title: string,
+          headers: string[],
+          colWidths: number[],
+          rows: number,
+          fieldPrefix: string,
+        ) => {
+          drawBox(tPage, x, y, width, height, rgb(1, 1, 1))
+          tPage.drawText(title, { x: x - 24, y: y + height / 2 - 10, size: 8, font: fontBold, rotate: degrees(90) })
+          const headerH = 16
+          tPage.drawRectangle({ x, y: y + height - headerH, width, height: headerH, color: rgb(1, 1, 1), borderColor: border, borderWidth: 1 })
 
-        let cx = x
-        for (let i = 0; i < headers.length; i += 1) {
-          page.drawLine({ start: { x: cx, y }, end: { x: cx, y: y + height }, color: border, thickness: 1 })
-          page.drawText(headers[i], { x: cx + 4, y: y + height - 12, size: 8, font: fontBold })
-          cx += colWidths[i]
-        }
-        page.drawLine({ start: { x: x + width, y }, end: { x: x + width, y: y + height }, color: border, thickness: 1 })
-        page.drawLine({ start: { x, y: y + height - headerH }, end: { x: x + width, y: y + height - headerH }, color: border, thickness: 1 })
+          let cx = x
+          for (let i = 0; i < headers.length; i += 1) {
+            tPage.drawLine({ start: { x: cx, y }, end: { x: cx, y: y + height }, color: border, thickness: 1 })
+            tPage.drawText(headers[i], { x: cx + 4, y: y + height - 12, size: 8, font: fontBold })
+            cx += colWidths[i]
+          }
+          tPage.drawLine({ start: { x: x + width, y }, end: { x: x + width, y: y + height }, color: border, thickness: 1 })
+          tPage.drawLine({ start: { x, y: y + height - headerH }, end: { x: x + width, y: y + height - headerH }, color: border, thickness: 1 })
 
-        const rowH = (height - headerH) / rows
-        for (let r = 0; r < rows; r += 1) {
-          const ry = y + height - headerH - rowH * (r + 1)
-          page.drawLine({ start: { x, y: ry }, end: { x: x + width, y: ry }, color: border, thickness: 1 })
-          let fx = x
-          for (let c = 0; c < headers.length; c += 1) {
-            const fw = colWidths[c]
-            addTextField(`${fieldPrefix}_${r}_${c}`, page, fx + 1, ry + 2, fw - 2, rowH - 4, 9, fillBg)
-            fx += fw
+          const rowH = (height - headerH) / rows
+          for (let r = 0; r < rows; r += 1) {
+            const ry = y + height - headerH - rowH * (r + 1)
+            tPage.drawLine({ start: { x, y: ry }, end: { x: x + width, y: ry }, color: border, thickness: 1 })
+            let fx = x
+            for (let c = 0; c < headers.length; c += 1) {
+              const fw = colWidths[c]
+              addTextField(`${fieldPrefix}_${r}_${c}`, tPage, fx + 1, ry + 2, fw - 2, rowH - 4, 9, fillBg)
+              fx += fw
+            }
           }
         }
-      }
 
         drawTable(
-          p2,
+          page,
           section2X,
           tableY,
           tableW,
@@ -1525,11 +1534,11 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           ['Qta', 'Descrizione', 'Codice'],
           [36, tableW - 36 - 74, 74],
           Math.max(1, Math.min(12, rowsRicambi)),
-          'p2_ricambi',
+          `${prefix}_ricambi`,
         )
 
         drawTable(
-          p2,
+          page,
           section2X + tableW + tableGap,
           tableY,
           tableW,
@@ -1538,42 +1547,45 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           ['Descrizione', 'Codice', 'UM', 'Qta'],
           [tableW - 70 - 36 - 36, 70, 36, 36],
           Math.max(1, Math.min(12, rowsIntervento)),
-          'p2_intervento',
+          `${prefix}_intervento`,
         )
+      }
+
+      if (template !== 'maintenance' && includePage2) {
+        const p2 = pdf.addPage([a4.w, a4.h])
+        buildInterventoPage(p2, 'p2')
       }
 
       if (template === 'maintenance') {
         if (includePage3) {
-          const p3 = pdf.addPage([a4.w, a4.h])
-          const p3Top = a4.h - margin
-          drawHeaderLogo(p3, p3Top)
+          const p2 = pdf.addPage([a4.w, a4.h])
+          const p2Top = a4.h - margin
+          drawHeaderLogo(p2, p2Top)
           const right = a4.w - margin
-          const headerTopY = p3Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
-          drawCompanyRight(p3, p3Top, right)
-          drawHeaderProgressivo(p3, headerTopY, 'p3')
+          const headerTopY = p2Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+          drawCompanyRight(p2, p2Top, right)
+          drawHeaderProgressivo(p2, headerTopY, 'p2')
 
           const pageW = a4.w - margin * 2
           let cursorY = headerTopY - (showProgressivo ? 60 : 20)
 
           const manRowH = 22
           const manGap = 8
-          const manBoxW = (pageW - manGap * 3) / 4
+          const manBoxW = (pageW - manGap) / 2
           const manY = cursorY - manRowH
           const manDefs = [
-            { label: 'Man Basic', name: 'p3_man_basic' },
-            { label: 'Man Special', name: 'p3_man_special' },
-            { label: 'Man Hi Tech', name: 'p3_man_hi_tech' },
-            { label: 'Man No Prob.', name: 'p3_man_no_prob' },
+            { label: 'Man Basic', name: 'p2_man_basic' },
+            { label: 'Man Special', name: 'p2_man_special' },
           ]
           for (let i = 0; i < manDefs.length; i += 1) {
             const x = margin + i * (manBoxW + manGap)
-            drawBox(p3, x, manY, manBoxW, manRowH, rgb(1, 1, 1))
-            p3.drawText(manDefs[i].label, { x: x + 6, y: manY + 7, size: 8, font: fontBold })
-            addCheckBoxOnPage(manDefs[i].name, p3, x + manBoxW - 18, manY + 5, 12)
+            drawBox(p2, x, manY, manBoxW, manRowH, rgb(1, 1, 1))
+            p2.drawText(manDefs[i].label, { x: x + 6, y: manY + 7, size: 8, font: fontBold })
+            addCheckBoxOnPage(manDefs[i].name, p2, x + manBoxW - 18, manY + 5, 12)
           }
           cursorY = manY - 16
 
-          p3.drawText('Da compilare nel caso di interventi di manutenzione su sistemi idronici', {
+          p2.drawText('Da compilare nel caso di interventi di manutenzione su sistemi idronici', {
             x: margin,
             y: cursorY,
             size: 9,
@@ -1582,11 +1594,11 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           cursorY -= 18
 
           const groupBoxH = 54
-          drawBox(p3, margin, cursorY - groupBoxH, pageW, groupBoxH, rgb(1, 1, 1))
-          p3.drawText('Modelli e Matricole dei gruppi', { x: margin + 6, y: cursorY - 14, size: 8, font: fontBold })
+          drawBox(p2, margin, cursorY - groupBoxH, pageW, groupBoxH, rgb(1, 1, 1))
+          p2.drawText('Modelli e Matricole dei gruppi', { x: margin + 6, y: cursorY - 14, size: 8, font: fontBold })
           addMultilineTextField(
-            'p3_modelli_matricole_gruppi',
-            p3,
+            'p2_modelli_matricole_gruppi',
+            p2,
             margin + 6,
             cursorY - groupBoxH + 6,
             pageW - 12,
@@ -1630,7 +1642,7 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           const tableH = tableHeaderH + maxRows * rowH
           const tableY = cursorY - tableH
           const tableX = margin
-          drawBox(p3, tableX, tableY, pageW, tableH, rgb(1, 1, 1))
+          drawBox(p2, tableX, tableY, pageW, tableH, rgb(1, 1, 1))
 
           const halfW = pageW / 2
           const descW = Math.round(halfW * 0.68)
@@ -1639,22 +1651,22 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           const midX = tableX + halfW
 
           const headerY = tableY + tableH - tableHeaderH
-          p3.drawLine({ start: { x: tableX, y: headerY }, end: { x: tableX + pageW, y: headerY }, color: border, thickness: 1 })
-          p3.drawLine({ start: { x: midX, y: tableY }, end: { x: midX, y: tableY + tableH }, color: border, thickness: 1 })
+          p2.drawLine({ start: { x: tableX, y: headerY }, end: { x: tableX + pageW, y: headerY }, color: border, thickness: 1 })
+          p2.drawLine({ start: { x: midX, y: tableY }, end: { x: midX, y: tableY + tableH }, color: border, thickness: 1 })
 
           const leftCheckX = tableX + descW
           const rightCheckX = midX + descW
-          p3.drawLine({ start: { x: leftCheckX, y: tableY }, end: { x: leftCheckX, y: tableY + tableH }, color: border, thickness: 1 })
-          p3.drawLine({ start: { x: rightCheckX, y: tableY }, end: { x: rightCheckX, y: tableY + tableH }, color: border, thickness: 1 })
+          p2.drawLine({ start: { x: leftCheckX, y: tableY }, end: { x: leftCheckX, y: tableY + tableH }, color: border, thickness: 1 })
+          p2.drawLine({ start: { x: rightCheckX, y: tableY }, end: { x: rightCheckX, y: tableY + tableH }, color: border, thickness: 1 })
 
           for (let i = 1; i < 3; i += 1) {
-            p3.drawLine({
+            p2.drawLine({
               start: { x: leftCheckX + colW * i, y: tableY },
               end: { x: leftCheckX + colW * i, y: tableY + tableH },
               color: border,
               thickness: 1,
             })
-            p3.drawLine({
+            p2.drawLine({
               start: { x: rightCheckX + colW * i, y: tableY },
               end: { x: rightCheckX + colW * i, y: tableY + tableH },
               color: border,
@@ -1662,45 +1674,50 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
             })
           }
 
-          p3.drawText('CONTROLLO GRUPPO', { x: tableX + 4, y: headerY + 8, size: 7, font: fontBold })
-          p3.drawText('CHECK', { x: leftCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
-          p3.drawText('CONTROLLI GENERALI', { x: midX + 4, y: headerY + 8, size: 7, font: fontBold })
-          p3.drawText('CHECK', { x: rightCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p2.drawText('CONTROLLO GRUPPO', { x: tableX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p2.drawText('CHECK', { x: leftCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p2.drawText('CONTROLLI GENERALI', { x: midX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p2.drawText('CHECK', { x: rightCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
 
           const checkLabels = ['SI', 'NO', 'PARZ.']
           for (let i = 0; i < checkLabels.length; i += 1) {
-            p3.drawText(checkLabels[i], { x: leftCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
-            p3.drawText(checkLabels[i], { x: rightCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
+            p2.drawText(checkLabels[i], { x: leftCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
+            p2.drawText(checkLabels[i], { x: rightCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
           }
 
           for (let r = 0; r < maxRows; r += 1) {
             const ry = headerY - rowH * (r + 1)
-            p3.drawLine({ start: { x: tableX, y: ry }, end: { x: tableX + pageW, y: ry }, color: border, thickness: 1 })
+            p2.drawLine({ start: { x: tableX, y: ry }, end: { x: tableX + pageW, y: ry }, color: border, thickness: 1 })
 
             const leftLabel = leftRows[r]
             if (leftLabel) {
-              p3.drawText(leftLabel, { x: tableX + 4, y: ry + 5, size: 7, font })
+              p2.drawText(leftLabel, { x: tableX + 4, y: ry + 5, size: 7, font })
               for (let c = 0; c < 3; c += 1) {
-                addCheckBoxOnPage(`p3_cg_${r}_${c}`, p3, leftCheckX + colW * c + 7, ry + 4, 10)
+                addCheckBoxOnPage(`p2_cg_${r}_${c}`, p2, leftCheckX + colW * c + 7, ry + 4, 10)
               }
             }
 
             const rightLabel = rightRows[r]
             if (rightLabel) {
-              p3.drawText(rightLabel, { x: midX + 4, y: ry + 5, size: 7, font })
+              p2.drawText(rightLabel, { x: midX + 4, y: ry + 5, size: 7, font })
               for (let c = 0; c < 3; c += 1) {
-                addCheckBoxOnPage(`p3_cgen_${r}_${c}`, p3, rightCheckX + colW * c + 7, ry + 4, 10)
+                addCheckBoxOnPage(`p2_cgen_${r}_${c}`, p2, rightCheckX + colW * c + 7, ry + 4, 10)
               }
             }
           }
 
           cursorY = tableY - 14
-          p3.drawText('NOTE/EVENTUALI ANOMALIE RISCONTRATE', { x: margin, y: cursorY, size: 8, font: fontBold })
+          p2.drawText('NOTE/EVENTUALI ANOMALIE RISCONTRATE', { x: margin, y: cursorY, size: 8, font: fontBold })
           const notesTop = cursorY - 12
           const notesY = margin
           const notesH = Math.max(20, notesTop - notesY)
-          drawBox(p3, margin, notesY, pageW, notesH, rgb(1, 1, 1))
-          addMultilineTextField('p3_note_anomalie', p3, margin + 6, notesY + 6, pageW - 12, notesH - 12, 9, fillBg)
+          drawBox(p2, margin, notesY, pageW, notesH, rgb(1, 1, 1))
+          addMultilineTextField('p2_note_anomalie', p2, margin + 6, notesY + 6, pageW - 12, notesH - 12, 9, fillBg)
+        }
+
+        if (includePage2) {
+          const p3 = pdf.addPage([a4.w, a4.h])
+          buildInterventoPage(p3, 'p3')
         }
 
         if (includePage4) {
@@ -1713,15 +1730,36 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
           drawHeaderProgressivo(p4, headerTopY, 'p4')
 
           const notesTop = Math.min(p4Top - 80, headerTopY - (showProgressivo ? 60 : 20))
+          const signatureH = 60
+          const signatureGap = 18
+          const signatureY = margin
+          const signatureW = (a4.w - margin * 2 - signatureGap) / 2
+          const notesBottom = signatureY + signatureH + 18
+
           p4.drawText('Note Aggiuntive', { x: margin, y: notesTop - 12, size: 9, font: fontBold })
           addMultilineTextField(
             'p4_note_aggiuntive',
             p4,
             margin,
-            margin,
+            notesBottom,
             a4.w - margin * 2,
-            Math.max(60, notesTop - margin - 24),
+            Math.max(60, notesTop - notesBottom - 24),
             10,
+            fillBg,
+          )
+
+          drawBox(p4, margin, signatureY, signatureW, signatureH, rgb(1, 1, 1))
+          drawBox(p4, margin + signatureW + signatureGap, signatureY, signatureW, signatureH, rgb(1, 1, 1))
+          p4.drawText('Firma tecnico', { x: margin + 8, y: signatureY + signatureH - 14, size: 9, font: fontBold })
+          p4.drawText('Firma cliente', { x: margin + signatureW + signatureGap + 8, y: signatureY + signatureH - 14, size: 9, font: fontBold })
+          addSignatureField('p4_firma_tecnico', p4, margin + 8, signatureY + 8, signatureW - 16, signatureH - 26, fillBg)
+          addSignatureField(
+            'p4_firma_cliente',
+            p4,
+            margin + signatureW + signatureGap + 8,
+            signatureY + 8,
+            signatureW - 16,
+            signatureH - 26,
             fillBg,
           )
         }
@@ -2025,18 +2063,20 @@ function GenerateHydronicFormTool({ template = 'standard' }: { template?: Hydron
       </label>
       <label className="field fieldInline">
         <input type="checkbox" checked={includePage2} onChange={(e) => setIncludePage2(e.target.checked)} />
-        <div className="fieldLabel">Includi pagina 2 (difetti / firme / tabelle)</div>
+        <div className="fieldLabel">
+          {template === 'maintenance' ? 'Includi pagina 3 (difetti / firme / tabelle)' : 'Includi pagina 2 (difetti / firme / tabelle)'}
+        </div>
       </label>
       <label className="field fieldInline">
         <input type="checkbox" checked={includePage3} onChange={(e) => setIncludePage3(e.target.checked)} />
         <div className="fieldLabel">
-          {template === 'maintenance' ? 'Includi pagina 3 (manutenzioni / checklist)' : 'Includi pagina 3 (note aggiuntive)'}
+          {template === 'maintenance' ? 'Includi pagina 2 (manutenzioni / checklist)' : 'Includi pagina 3 (note aggiuntive)'}
         </div>
       </label>
       {template === 'maintenance' ? (
         <label className="field fieldInline">
           <input type="checkbox" checked={includePage4} onChange={(e) => setIncludePage4(e.target.checked)} />
-          <div className="fieldLabel">Includi pagina 4 (note aggiuntive)</div>
+          <div className="fieldLabel">Includi pagina 4 (note aggiuntive + firme)</div>
         </label>
       ) : null}
 
