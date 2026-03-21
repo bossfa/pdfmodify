@@ -17,6 +17,7 @@ type ToolId =
   | 'pageNumbers'
   | 'watermark'
   | 'generateHydronicForm'
+  | 'generateHydronicMaintenanceForm'
   | 'compressRaster'
   | 'unlockRaster'
   | 'extractText'
@@ -37,6 +38,11 @@ const TOOL_DEFS: ToolDef[] = [
   { id: 'pageNumbers', title: 'Aggiungi numeri di pagina', subtitle: 'Inserisce la numerazione sul PDF.' },
   { id: 'watermark', title: 'Aggiungi filigrana', subtitle: 'Testo semi-trasparente su tutte le pagine.' },
   { id: 'generateHydronicForm', title: 'Crea modulo intervento idronico', subtitle: 'Genera un PDF nuovo, simile al modello in foto, personalizzato con il tuo logo.' },
+  {
+    id: 'generateHydronicMaintenanceForm',
+    title: 'Crea modulo manutenzioni idronici',
+    subtitle: 'Come il modulo idronico, ma include anche la pagina manutenzioni (checklist) e le note.',
+  },
   { id: 'compressRaster', title: 'Comprimi PDF', subtitle: 'Rasterizza e ricrea il PDF (perde testo/qualità).' },
   { id: 'unlockRaster', title: 'Sblocca PDF', subtitle: 'Rimuove protezioni rasterizzando (perde testo/qualità).' },
   { id: 'extractText', title: 'PDF OCR (testo)', subtitle: 'Estrae testo (se presente). Per scanner serve OCR server.' },
@@ -112,6 +118,7 @@ function ToolBody({ toolId }: { toolId: ToolId }) {
   if (toolId === 'pageNumbers') return <PageNumbersTool />
   if (toolId === 'watermark') return <WatermarkTool />
   if (toolId === 'generateHydronicForm') return <GenerateHydronicFormTool />
+  if (toolId === 'generateHydronicMaintenanceForm') return <GenerateHydronicFormTool template="maintenance" />
   if (toolId === 'compressRaster') return <RasterTool mode="compress" />
   if (toolId === 'unlockRaster') return <RasterTool mode="unlock" />
   return <ExtractTextTool />
@@ -881,7 +888,9 @@ function WatermarkTool() {
   )
 }
 
-function GenerateHydronicFormTool() {
+type HydronicTemplate = 'standard' | 'maintenance'
+
+function GenerateHydronicFormTool({ template = 'standard' }: { template?: HydronicTemplate } = {}) {
   const [companyName, setCompanyName] = useState('CLIMAX SRL')
   const [companySubline, setCompanySubline] = useState('Via…, Città… - P.IVA…')
   const [logo, setLogo] = useState<File | null>(null)
@@ -903,6 +912,7 @@ function GenerateHydronicFormTool() {
   const [showModelliMatricole, setShowModelliMatricole] = useState(true)
   const [includePage2, setIncludePage2] = useState(true)
   const [includePage3, setIncludePage3] = useState(true)
+  const [includePage4, setIncludePage4] = useState(template === 'maintenance')
   const [rowsRicambi, setRowsRicambi] = useState(8)
   const [rowsIntervento, setRowsIntervento] = useState(8)
   const [busy, setBusy] = useState(false)
@@ -1532,7 +1542,190 @@ function GenerateHydronicFormTool() {
         )
       }
 
-      if (includePage3) {
+      if (template === 'maintenance') {
+        if (includePage3) {
+          const p3 = pdf.addPage([a4.w, a4.h])
+          const p3Top = a4.h - margin
+          drawHeaderLogo(p3, p3Top)
+          const right = a4.w - margin
+          const headerTopY = p3Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+          drawCompanyRight(p3, p3Top, right)
+          drawHeaderProgressivo(p3, headerTopY, 'p3')
+
+          const pageW = a4.w - margin * 2
+          let cursorY = headerTopY - (showProgressivo ? 60 : 20)
+
+          const manRowH = 22
+          const manGap = 8
+          const manBoxW = (pageW - manGap * 3) / 4
+          const manY = cursorY - manRowH
+          const manDefs = [
+            { label: 'Man Basic', name: 'p3_man_basic' },
+            { label: 'Man Special', name: 'p3_man_special' },
+            { label: 'Man Hi Tech', name: 'p3_man_hi_tech' },
+            { label: 'Man No Prob.', name: 'p3_man_no_prob' },
+          ]
+          for (let i = 0; i < manDefs.length; i += 1) {
+            const x = margin + i * (manBoxW + manGap)
+            drawBox(p3, x, manY, manBoxW, manRowH, rgb(1, 1, 1))
+            p3.drawText(manDefs[i].label, { x: x + 6, y: manY + 7, size: 8, font: fontBold })
+            addCheckBoxOnPage(manDefs[i].name, p3, x + manBoxW - 18, manY + 5, 12)
+          }
+          cursorY = manY - 16
+
+          p3.drawText('Da compilare nel caso di interventi di manutenzione su sistemi idronici', {
+            x: margin,
+            y: cursorY,
+            size: 9,
+            font: fontBold,
+          })
+          cursorY -= 18
+
+          const groupBoxH = 54
+          drawBox(p3, margin, cursorY - groupBoxH, pageW, groupBoxH, rgb(1, 1, 1))
+          p3.drawText('Modelli e Matricole dei gruppi', { x: margin + 6, y: cursorY - 14, size: 8, font: fontBold })
+          addMultilineTextField(
+            'p3_modelli_matricole_gruppi',
+            p3,
+            margin + 6,
+            cursorY - groupBoxH + 6,
+            pageW - 12,
+            groupBoxH - 24,
+            9,
+            fillBg,
+          )
+          cursorY = cursorY - groupBoxH - 14
+
+          const leftRows = [
+            'Controllo perdite refrigerante',
+            'Controllo verniciatura',
+            'Controllo isolamento degli scambiatori',
+            'Compilazione libretto impianto',
+            'Valutazione capacità (compressore)',
+            'Controllo motore',
+            'Controllo sistema di lubrificazione',
+            'Controllo funzionamento vano',
+            'Controllo iniezione di liquido',
+            'Controllo by-pass caldo',
+            'Lavaggio condensatori numero volte l’anno',
+            'Pulizia filtri UTA numero volte l’anno',
+            'Verifica impianto con service checker',
+          ]
+          const rightRows = [
+            'Controllo di funzionamento dei vari apparati',
+            'Controllo dei sistemi di protezione',
+            'Valutazione della capacità (condensatore)',
+            'Pulizia filtri aria fan coil numero volte l’anno',
+            'Analisi termometrica olio numero volte l’anno',
+            'Verifica dei contattori',
+            'Verifica impostazione del relè termico',
+            'Controllo connessioni elettriche',
+            'Valutazione della capacità (evaporatore)',
+            'Valutazione della capacità (valvola espansione)',
+          ]
+
+          const maxRows = Math.max(leftRows.length, rightRows.length)
+          const tableHeaderH = 22
+          const rowH = 18
+          const tableH = tableHeaderH + maxRows * rowH
+          const tableY = cursorY - tableH
+          const tableX = margin
+          drawBox(p3, tableX, tableY, pageW, tableH, rgb(1, 1, 1))
+
+          const halfW = pageW / 2
+          const descW = Math.round(halfW * 0.68)
+          const checkW = halfW - descW
+          const colW = checkW / 3
+          const midX = tableX + halfW
+
+          const headerY = tableY + tableH - tableHeaderH
+          p3.drawLine({ start: { x: tableX, y: headerY }, end: { x: tableX + pageW, y: headerY }, color: border, thickness: 1 })
+          p3.drawLine({ start: { x: midX, y: tableY }, end: { x: midX, y: tableY + tableH }, color: border, thickness: 1 })
+
+          const leftCheckX = tableX + descW
+          const rightCheckX = midX + descW
+          p3.drawLine({ start: { x: leftCheckX, y: tableY }, end: { x: leftCheckX, y: tableY + tableH }, color: border, thickness: 1 })
+          p3.drawLine({ start: { x: rightCheckX, y: tableY }, end: { x: rightCheckX, y: tableY + tableH }, color: border, thickness: 1 })
+
+          for (let i = 1; i < 3; i += 1) {
+            p3.drawLine({
+              start: { x: leftCheckX + colW * i, y: tableY },
+              end: { x: leftCheckX + colW * i, y: tableY + tableH },
+              color: border,
+              thickness: 1,
+            })
+            p3.drawLine({
+              start: { x: rightCheckX + colW * i, y: tableY },
+              end: { x: rightCheckX + colW * i, y: tableY + tableH },
+              color: border,
+              thickness: 1,
+            })
+          }
+
+          p3.drawText('CONTROLLO GRUPPO', { x: tableX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p3.drawText('CHECK', { x: leftCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p3.drawText('CONTROLLI GENERALI', { x: midX + 4, y: headerY + 8, size: 7, font: fontBold })
+          p3.drawText('CHECK', { x: rightCheckX + 4, y: headerY + 8, size: 7, font: fontBold })
+
+          const checkLabels = ['SI', 'NO', 'PARZ.']
+          for (let i = 0; i < checkLabels.length; i += 1) {
+            p3.drawText(checkLabels[i], { x: leftCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
+            p3.drawText(checkLabels[i], { x: rightCheckX + colW * i + 6, y: headerY + 2, size: 7, font: fontBold })
+          }
+
+          for (let r = 0; r < maxRows; r += 1) {
+            const ry = headerY - rowH * (r + 1)
+            p3.drawLine({ start: { x: tableX, y: ry }, end: { x: tableX + pageW, y: ry }, color: border, thickness: 1 })
+
+            const leftLabel = leftRows[r]
+            if (leftLabel) {
+              p3.drawText(leftLabel, { x: tableX + 4, y: ry + 5, size: 7, font })
+              for (let c = 0; c < 3; c += 1) {
+                addCheckBoxOnPage(`p3_cg_${r}_${c}`, p3, leftCheckX + colW * c + 7, ry + 4, 10)
+              }
+            }
+
+            const rightLabel = rightRows[r]
+            if (rightLabel) {
+              p3.drawText(rightLabel, { x: midX + 4, y: ry + 5, size: 7, font })
+              for (let c = 0; c < 3; c += 1) {
+                addCheckBoxOnPage(`p3_cgen_${r}_${c}`, p3, rightCheckX + colW * c + 7, ry + 4, 10)
+              }
+            }
+          }
+
+          cursorY = tableY - 14
+          p3.drawText('NOTE/EVENTUALI ANOMALIE RISCONTRATE', { x: margin, y: cursorY, size: 8, font: fontBold })
+          const notesTop = cursorY - 12
+          const notesY = margin
+          const notesH = Math.max(20, notesTop - notesY)
+          drawBox(p3, margin, notesY, pageW, notesH, rgb(1, 1, 1))
+          addMultilineTextField('p3_note_anomalie', p3, margin + 6, notesY + 6, pageW - 12, notesH - 12, 9, fillBg)
+        }
+
+        if (includePage4) {
+          const p4 = pdf.addPage([a4.w, a4.h])
+          const p4Top = a4.h - margin
+          drawHeaderLogo(p4, p4Top)
+          const right = a4.w - margin
+          const headerTopY = p4Top - Math.max(20, Math.min(120, Math.round(logoBoxH))) - 8
+          drawCompanyRight(p4, p4Top, right)
+          drawHeaderProgressivo(p4, headerTopY, 'p4')
+
+          const notesTop = Math.min(p4Top - 80, headerTopY - (showProgressivo ? 60 : 20))
+          p4.drawText('Note Aggiuntive', { x: margin, y: notesTop - 12, size: 9, font: fontBold })
+          addMultilineTextField(
+            'p4_note_aggiuntive',
+            p4,
+            margin,
+            margin,
+            a4.w - margin * 2,
+            Math.max(60, notesTop - margin - 24),
+            10,
+            fillBg,
+          )
+        }
+      } else if (includePage3) {
         const p3 = pdf.addPage([a4.w, a4.h])
         const p3Top = a4.h - margin
         drawHeaderLogo(p3, p3Top)
@@ -1541,7 +1734,7 @@ function GenerateHydronicFormTool() {
         drawCompanyRight(p3, p3Top, right)
         drawHeaderProgressivo(p3, headerTopY, 'p3')
 
-      const notesTop = Math.min(p3Top - 80, headerTopY - (showProgressivo ? 60 : 20))
+        const notesTop = Math.min(p3Top - 80, headerTopY - (showProgressivo ? 60 : 20))
         const signatureH = 60
         const signatureGap = 18
         const signatureY = margin
@@ -1593,6 +1786,7 @@ function GenerateHydronicFormTool() {
     headerBg,
     includePage2,
     includePage3,
+    includePage4,
     layoutMode,
     logo,
     logoBoxH,
@@ -1606,6 +1800,7 @@ function GenerateHydronicFormTool() {
     showModelliMatricole,
     showProgressivo,
     showTracingNumber,
+    template,
     titleSize,
   ])
 
@@ -1644,19 +1839,22 @@ function GenerateHydronicFormTool() {
           .replace(/\s+/g, '_')
           .replace(/[^a-z0-9_-]/g, '')
           .slice(0, 24) || 'azienda'
-      downloadBytes(bytes, `modulo_intervento_idronico_${safeName}.pdf`)
+      const prefix = template === 'maintenance' ? 'modulo_manutenzioni_idronici' : 'modulo_intervento_idronico'
+      downloadBytes(bytes, `${prefix}_${safeName}.pdf`)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
     } finally {
       setBusy(false)
     }
-  }, [buildPdfBytes, companyName])
+  }, [buildPdfBytes, companyName, template])
 
   return (
     <div className="toolForm">
       <div className="noticeBanner">
-        Questa versione rimane lo standard. “Riprogramma” applica un layout alternativo (sempre fac-simile del modulo).
+        {template === 'maintenance'
+          ? 'Questo modulo include anche la pagina manutenzioni (checklist). “Riprogramma” applica un layout alternativo (sempre fac-simile del modulo).'
+          : 'Questa versione rimane lo standard. “Riprogramma” applica un layout alternativo (sempre fac-simile del modulo).'}
       </div>
       <div className="sidebarRow">
         <button
@@ -1831,8 +2029,16 @@ function GenerateHydronicFormTool() {
       </label>
       <label className="field fieldInline">
         <input type="checkbox" checked={includePage3} onChange={(e) => setIncludePage3(e.target.checked)} />
-        <div className="fieldLabel">Includi pagina 3 (note aggiuntive)</div>
+        <div className="fieldLabel">
+          {template === 'maintenance' ? 'Includi pagina 3 (manutenzioni / checklist)' : 'Includi pagina 3 (note aggiuntive)'}
+        </div>
       </label>
+      {template === 'maintenance' ? (
+        <label className="field fieldInline">
+          <input type="checkbox" checked={includePage4} onChange={(e) => setIncludePage4(e.target.checked)} />
+          <div className="fieldLabel">Includi pagina 4 (note aggiuntive)</div>
+        </label>
+      ) : null}
 
       {includePage2 ? (
         <>
